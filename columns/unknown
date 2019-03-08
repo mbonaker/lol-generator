@@ -28,7 +28,6 @@ participants.0.stats.magicDamageDealtToChampions
 participants.0.stats.neutralMinionsKilled
 participants.0.stats.neutralMinionsKilledEnemyJungle
 participants.0.stats.neutralMinionsKilledTeamJungle
-participants.0.stats.participantId
 participants.0.stats.pentaKills
 participants.0.stats.physicalDamageDealt
 participants.0.stats.physicalDamageDealtToChampions
@@ -113,7 +112,6 @@ participants.1.stats.magicDamageDealtToChampions
 participants.1.stats.neutralMinionsKilled
 participants.1.stats.neutralMinionsKilledEnemyJungle
 participants.1.stats.neutralMinionsKilledTeamJungle
-participants.1.stats.participantId
 participants.1.stats.pentaKills
 participants.1.stats.physicalDamageDealt
 participants.1.stats.physicalDamageDealtToChampions
@@ -198,7 +196,6 @@ participants.2.stats.magicDamageDealtToChampions
 participants.2.stats.neutralMinionsKilled
 participants.2.stats.neutralMinionsKilledEnemyJungle
 participants.2.stats.neutralMinionsKilledTeamJungle
-participants.2.stats.participantId
 participants.2.stats.pentaKills
 participants.2.stats.physicalDamageDealt
 participants.2.stats.physicalDamageDealtToChampions
@@ -283,7 +280,6 @@ participants.3.stats.magicDamageDealtToChampions
 participants.3.stats.neutralMinionsKilled
 participants.3.stats.neutralMinionsKilledEnemyJungle
 participants.3.stats.neutralMinionsKilledTeamJungle
-participants.3.stats.participantId
 participants.3.stats.pentaKills
 participants.3.stats.physicalDamageDealt
 participants.3.stats.physicalDamageDealtToChampions
@@ -368,7 +364,6 @@ participants.4.stats.magicDamageDealtToChampions
 participants.4.stats.neutralMinionsKilled
 participants.4.stats.neutralMinionsKilledEnemyJungle
 participants.4.stats.neutralMinionsKilledTeamJungle
-participants.4.stats.participantId
 participants.4.stats.pentaKills
 participants.4.stats.physicalDamageDealt
 participants.4.stats.physicalDamageDealtToChampions
@@ -453,7 +448,6 @@ participants.5.stats.magicDamageDealtToChampions
 participants.5.stats.neutralMinionsKilled
 participants.5.stats.neutralMinionsKilledEnemyJungle
 participants.5.stats.neutralMinionsKilledTeamJungle
-participants.5.stats.participantId
 participants.5.stats.pentaKills
 participants.5.stats.physicalDamageDealt
 participants.5.stats.physicalDamageDealtToChampions
@@ -538,7 +532,6 @@ participants.6.stats.magicDamageDealtToChampions
 participants.6.stats.neutralMinionsKilled
 participants.6.stats.neutralMinionsKilledEnemyJungle
 participants.6.stats.neutralMinionsKilledTeamJungle
-participants.6.stats.participantId
 participants.6.stats.pentaKills
 participants.6.stats.physicalDamageDealt
 participants.6.stats.physicalDamageDealtToChampions
@@ -623,7 +616,6 @@ participants.7.stats.magicDamageDealtToChampions
 participants.7.stats.neutralMinionsKilled
 participants.7.stats.neutralMinionsKilledEnemyJungle
 participants.7.stats.neutralMinionsKilledTeamJungle
-participants.7.stats.participantId
 participants.7.stats.pentaKills
 participants.7.stats.physicalDamageDealt
 participants.7.stats.physicalDamageDealtToChampions
@@ -708,7 +700,6 @@ participants.8.stats.magicDamageDealtToChampions
 participants.8.stats.neutralMinionsKilled
 participants.8.stats.neutralMinionsKilledEnemyJungle
 participants.8.stats.neutralMinionsKilledTeamJungle
-participants.8.stats.participantId
 participants.8.stats.pentaKills
 participants.8.stats.physicalDamageDealt
 participants.8.stats.physicalDamageDealtToChampions
@@ -793,7 +784,6 @@ participants.9.stats.magicDamageDealtToChampions
 participants.9.stats.neutralMinionsKilled
 participants.9.stats.neutralMinionsKilledEnemyJungle
 participants.9.stats.neutralMinionsKilledTeamJungle
-participants.9.stats.participantId
 participants.9.stats.pentaKills
 participants.9.stats.physicalDamageDealt
 participants.9.stats.physicalDamageDealtToChampions

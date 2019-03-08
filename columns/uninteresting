@@ -177,6 +177,7 @@ participants.0.stats.item4
 participants.0.stats.item5
 participants.0.stats.item6
 participants.0.stats.objectivePlayerScore
+participants.0.stats.participantId
 participants.0.stats.perk0
 participants.0.stats.perk0Var1
 participants.0.stats.perk0Var2
@@ -300,6 +301,7 @@ participants.1.stats.item4
 participants.1.stats.item5
 participants.1.stats.item6
 participants.1.stats.objectivePlayerScore
+participants.1.stats.participantId
 participants.1.stats.perk0
 participants.1.stats.perk0Var1
 participants.1.stats.perk0Var2
@@ -441,6 +443,7 @@ participants.2.stats.item4
 participants.2.stats.item5
 participants.2.stats.item6
 participants.2.stats.objectivePlayerScore
+participants.2.stats.participantId
 participants.2.stats.perk0
 participants.2.stats.perk0Var1
 participants.2.stats.perk0Var2
@@ -558,6 +561,7 @@ participants.3.stats.item4
 participants.3.stats.item5
 participants.3.stats.item6
 participants.3.stats.objectivePlayerScore
+participants.3.stats.participantId
 participants.3.stats.perk0
 participants.3.stats.perk0Var1
 participants.3.stats.perk0Var2
@@ -691,6 +695,7 @@ participants.4.stats.item4
 participants.4.stats.item5
 participants.4.stats.item6
 participants.4.stats.objectivePlayerScore
+participants.4.stats.participantId
 participants.4.stats.perk0
 participants.4.stats.perk0Var1
 participants.4.stats.perk0Var2
@@ -804,6 +809,7 @@ participants.5.stats.item4
 participants.5.stats.item5
 participants.5.stats.item6
 participants.5.stats.objectivePlayerScore
+participants.5.stats.participantId
 participants.5.stats.perk0
 participants.5.stats.perk0Var1
 participants.5.stats.perk0Var2
@@ -917,6 +923,7 @@ participants.6.stats.item4
 participants.6.stats.item5
 participants.6.stats.item6
 participants.6.stats.objectivePlayerScore
+participants.6.stats.participantId
 participants.6.stats.perk0
 participants.6.stats.perk0Var1
 participants.6.stats.perk0Var2
@@ -1054,6 +1061,7 @@ participants.7.stats.item4
 participants.7.stats.item5
 participants.7.stats.item6
 participants.7.stats.objectivePlayerScore
+participants.7.stats.participantId
 participants.7.stats.perk0
 participants.7.stats.perk0Var1
 participants.7.stats.perk0Var2
@@ -1177,6 +1185,7 @@ participants.8.stats.item4
 participants.8.stats.item5
 participants.8.stats.item6
 participants.8.stats.objectivePlayerScore
+participants.8.stats.participantId
 participants.8.stats.perk0
 participants.8.stats.perk0Var1
 participants.8.stats.perk0Var2
@@ -1288,6 +1297,7 @@ participants.9.stats.item4
 participants.9.stats.item5
 participants.9.stats.item6
 participants.9.stats.objectivePlayerScore
+participants.9.stats.participantId
 participants.9.stats.perk0
 participants.9.stats.perk0Var1
 participants.9.stats.perk0Var2
