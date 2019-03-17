@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-
+import logging
+import logging.config
 import sys
 import csv
+import yaml
 
 
 def handle_input(known):
@@ -26,4 +28,7 @@ def handle_all_inputs():
 
 
 if __name__ == '__main__':
+    with open("logging.yaml", 'rt') as f:
+        config = yaml.safe_load(f.read())
+    logging.config.dictConfig(config)
     handle_all_inputs()
