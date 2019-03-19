@@ -384,7 +384,7 @@ class CorpusProvider(DataProvider):
         self.logger = logging.getLogger(__name__)
         try:
             self.load()
-        except IOError as e:
+        except BaseException as e:
             self.logger.error("Could not load the necessary data for the corpus provider")
             raise DataHandlingError("Could not load the necessary data for the corpus provider") from e
 
