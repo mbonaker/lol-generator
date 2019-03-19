@@ -26,7 +26,7 @@ def handle_all_inputs(config: ApplicationConfiguration):
             print("Warning! This program takes 0 or " + str(len(csv_structure.known)) + " parameters but not " + str(len(args)), file=sys.stderr)
         else:
             handle_input(args)
-    corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), False)
+    corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16))
     known = corpus.known.shape
     unknown = corpus.unknown.shape
     unknown_ww = corpus.unknown_without_win.shape

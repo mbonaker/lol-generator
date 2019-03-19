@@ -1,7 +1,11 @@
 import csv
+import math
+import queue
 import tempfile
 import os
 import sys
+import threading
+
 import numpy as np
 import pandas
 import logging
@@ -11,6 +15,14 @@ from typing import *
 from indexed import IndexedOrderedDict
 from pandas.core.dtypes.dtypes import CategoricalDtype
 from pandas.api.types import is_numeric_dtype
+
+
+class DataHandlingError(BaseException):
+    pass
+
+
+class FormattingError(BaseException):
+    pass
 
 
 class CsvColumnSpecification:
@@ -104,6 +116,7 @@ class CsvColumnSpecification:
 
 class CsvCorpusStructure:
     def __init__(self, data_path: str):
+        self.data_path = data_path
         self.logger = logging.getLogger(__name__)
         self.all = self.read_column_list_file("{path}/columns/all".format(path=data_path))
         self.interesting = self.read_column_list_file("{path}/columns/interesting".format(path=data_path))
@@ -133,6 +146,19 @@ class CsvCorpusStructure:
         logger.log(logging.DEBUG, "Reading {path!r}...".format(path=full_path))
         with open(full_path, "r") as f:
             return tuple(l if l[-1] != "\n" else l[:-1] for l in f)
+
+    def count_matches(self):
+        with open("{path}/Matches.csv".format(path=self.data_path), "r") as f:
+            lines = 0
+            buf_size = 1 << 20
+            read_f = f.read  # loop optimization
+
+            buf = read_f(buf_size)
+            while buf:
+                lines += buf.count('\n')
+                buf = read_f(buf_size)
+        # subtract 1 because the header doesn't count
+        return lines - 1
 
     @property
     def dtype(self) -> Dict[str, Union[np.dtype, pandas.api.types.CategoricalDtype]]:
@@ -273,26 +299,20 @@ class NumpyCorpusStructure:
             raise LookupError("The 'win' portion is not contained in this corpus.")
         return slice(-2, None)
 
-    def csv_structured_to_np_structured(self, data: pandas.DataFrame) -> np.ndarray:
-        self.logger.log(logging.DEBUG, "Converting actual pandas.DataFrame to numpy.ndarray...")
-        with tempfile.NamedTemporaryFile() as f:
-            new_data = np.memmap(f, mode="a+", shape=(data.shape[0], len(self.columns)), dtype=self.dtype)
+    def csv_structured_to_np_structured(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
         for i, np_col_spec in enumerate(self.columns):
             csv_col_spec = np_col_spec.csv_column_specification
-            pd_col = data[csv_col_spec.name]
-            self.logger.log(logging.DEBUG, "Converting column {col!r} from pandas.DataFrame to np.ndarray format".format(col=csv_col_spec.name))
+            pd_col = dataframe[csv_col_spec.name]
             if isinstance(np_col_spec, NumpyOneHotFieldColumnSpecification):
-                new_data[:, i] = (pd_col == np_col_spec.key).astype(self.dtype)
+                ndarray[:, i] = (pd_col == np_col_spec.key).astype(self.dtype)
             elif np_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and pd_col.dtype.name == "category":
-                new_data[:, i] = (pd_col == csv_col_spec.mode).astype(self.dtype)
+                ndarray[:, i] = (pd_col == csv_col_spec.mode).astype(self.dtype)
             elif np_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and is_numeric_dtype(pd_col.dtype):
-                new_data[:, i] = (pd_col > csv_col_spec.mean).astype(self.dtype)
+                ndarray[:, i] = (pd_col > csv_col_spec.mean).astype(self.dtype)
             else:
                 mean = csv_col_spec.mean
                 sd = csv_col_spec.sd
-                new_data[:, i] = (pd_col - mean) / sd
-        self.logger.log(logging.DEBUG, "pandas.DataFrame to numpy.ndarray conversion done.")
-        return new_data
+                ndarray[:, i] = (pd_col - mean) / sd
 
     def column_indices_from_names(self, names: Iterable[str]) -> List[int]:
         indices = []
@@ -362,7 +382,11 @@ class CorpusProvider(DataProvider):
     def __init__(self, data_path: str, dtype: np.dtype):
         super().__init__(data_path, dtype)
         self.logger = logging.getLogger(__name__)
-        self.load()
+        try:
+            self.load()
+        except IOError as e:
+            self.logger.error("Could not load the necessary data for the corpus provider")
+            raise DataHandlingError("Could not load the necessary data for the corpus provider") from e
 
     def load(self):
         if os.path.isfile(self.npy_file_name):
@@ -385,16 +409,48 @@ class CorpusProvider(DataProvider):
         np.save(self.npy_file_name, self.data)
         self.logger.log(logging.INFO, "Saved {npy_path}".format(npy_path=self.npy_file_name))
 
+    def dataframe_to_ndarray_conversion_thread(self, chunk_queue: queue.Queue, memmap: np.ndarray, chunksize: int, thread_index: int):
+        done = False
+        while not done:
+            i, chunk = chunk_queue.get(block=True, timeout=None)
+            if (i, chunk) == (None, None):
+                done = True
+                chunk_queue.task_done()
+            else:
+                self.logger.log(logging.DEBUG, "Start converting data #{i:d} on thread {id:d}".format(id=thread_index, i=i))
+                for column in self.csv_structure.columns.values():
+                    chunk[column.name] = chunk[column.name].fillna(column.default).astype(column.dtype)
+                self.np_structure.csv_structured_to_np_structured(chunk, memmap[i * chunksize:i * chunksize + chunk.shape[0], :])
+                chunk_queue.task_done()
+                self.logger.log(logging.INFO, "Thread {id:d} is done with conversion of chunk #{i:d}".format(id=thread_index, i=i))
+
     def load_from_csv_file(self):
         self.logger.log(logging.INFO, "Importing Matches.csv...")
-        data = pandas.read_csv(
+        self.logger.log(logging.INFO, "Calculating the amount of matches in Matches.csv to initialize matrix of appropriate size...")
+        match_count = self.csv_structure.count_matches()
+        with tempfile.NamedTemporaryFile(dir=self.data_path) as f:
+            self.data: np.ndarray = np.memmap(f, mode="w+", shape=(match_count, len(self.np_structure.columns)), dtype=self.np_structure.dtype)
+        chunksize = 1 << 13
+        total_chunk_amount = math.ceil(match_count / chunksize)
+        cpu_count = os.cpu_count() or 1
+        thread_count = max(1, cpu_count - 1)
+        threads = list()
+        chunk_queue = queue.Queue(maxsize=thread_count)
+        for i in range(thread_count):  # 'cpu_count - 1' because the main cpu is busy filling the queue
+            new_thread = threading.Thread(target=CorpusProvider.dataframe_to_ndarray_conversion_thread, args=(self, chunk_queue, self.data, chunksize, i))
+            new_thread.start()
+            threads.append(new_thread)
+        for i, chunk in enumerate(pandas.read_csv(
             "{path}/Matches.csv".format(path=self.data_path),
             dtype=self.csv_structure.dtype,
             header=0,
             true_values=("True",),
             na_values=('',),
             keep_default_na=False,
-        )
-        for column in self.csv_structure.columns.values():
-            data[column.name] = data[column.name].fillna(column.default).astype(column.dtype)
-        self.data = self.np_structure.csv_structured_to_np_structured(data)
+            chunksize=chunksize,
+        )):
+            self.logger.log(logging.INFO, "Chunk {current_chunk_index:d} / {total_chunk_amount:d} read from CSV. Forward to conversion thread...".format(current_chunk_index=i + 1, total_chunk_amount=total_chunk_amount))
+            chunk_queue.put((i, chunk), block=True, timeout=None)
+        for i in range(len(threads)):
+            chunk_queue.put((None, None), block=True, timeout=None)
+        chunk_queue.join()
