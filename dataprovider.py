@@ -1,4 +1,5 @@
 import csv
+import io
 import math
 import queue
 import tempfile
@@ -15,6 +16,11 @@ from typing import *
 from indexed import IndexedOrderedDict
 from pandas.core.dtypes.dtypes import CategoricalDtype
 from pandas.api.types import is_numeric_dtype
+
+PORTION_KNOWN = 1
+PORTION_WIN = 2
+PORTION_UNKNOWN = 2 + 4
+PORTION_INTERESTING = 1 + 2 + 4 + 8
 
 
 class DataHandlingError(BaseException):
@@ -33,6 +39,7 @@ class CsvColumnSpecification:
     OCCURRENCE_SINGLE = 0
     OCCURRENCE_PERPARTICIPANT = 1
     OCCURRENCE_PERTEAM = 2
+
     @staticmethod
     def from_dict(source: Dict[str, str]):
         name = source["Property Path"]
@@ -113,24 +120,46 @@ class CsvColumnSpecification:
         else:
             raise ValueError("format_spec {!r} unknown".format(self.format_spec))
 
+    def __hash__(self):
+        return hash(self.name)
+
 
 class CsvCorpusStructure:
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, portion: int = PORTION_INTERESTING):
         self.data_path = data_path
         self.logger = logging.getLogger(__name__)
-        self.all = self.read_column_list_file("{path}/columns/all".format(path=data_path))
-        self.interesting = self.read_column_list_file("{path}/columns/interesting".format(path=data_path))
-        self.known = self.read_column_list_file("{path}/columns/known".format(path=data_path))
-        self.unknown = self.read_column_list_file("{path}/columns/unknown".format(path=data_path))
-        self.uninteresting = self.read_column_list_file("{path}/columns/uninteresting".format(path=data_path))
+        portion_set = set()
+        if portion & PORTION_KNOWN:
+            self.known = self.read_column_list_file("{path}/columns/known".format(path=data_path))
+            portion_set.update(self.known)
+        else:
+            self.known = None
+        if portion & PORTION_UNKNOWN - PORTION_WIN:
+            self.unknown = self.read_column_list_file("{path}/columns/unknown".format(path=data_path))
+            self.unknown_without_win = tuple(col for col in self.unknown if col not in ("teams.0.win", "teams.1.win"))
+            portion_set.update(self.unknown_without_win)
+        else:
+            self.unknown = None
+            self.unknown_without_win = None
+        if portion & PORTION_INTERESTING - PORTION_WIN:
+            self.interesting = self.read_column_list_file("{path}/columns/interesting".format(path=data_path))
+            self.interesting_without_win = tuple(col for col in self.interesting if col not in ("teams.0.win", "teams.1.win"))
+            portion_set.update(self.interesting_without_win)
+        else:
+            self.interesting = None
+            self.interesting_without_win = None
+        if portion & PORTION_WIN:
+            portion_set.update(("teams.0.win", "teams.1.win"))
+        assert len(portion_set) > 0
         self.champion_names = self.read_names_csv("{path}/champion_names.csv".format(path=data_path))
         self.spell_names = self.read_names_csv("{path}/spell_names.csv".format(path=data_path))
         with open("{path}/columns/interesting.csv".format(path=data_path), "r") as f:
             self.columns: MutableMapping[str, CsvColumnSpecification] = IndexedOrderedDict()
             csv_data = csv.DictReader(f)
             for line in csv_data:
-                spec = CsvColumnSpecification.from_dict(line)
-                self.columns[spec.name] = spec
+                if line['Property Path'] in portion_set:
+                    spec = CsvColumnSpecification.from_dict(line)
+                    self.columns[spec.name] = spec
 
     @staticmethod
     def read_names_csv(full_path: str) -> Dict[int, str]:
@@ -164,9 +193,6 @@ class CsvCorpusStructure:
     def dtype(self) -> Dict[str, Union[np.dtype, pandas.api.types.CategoricalDtype]]:
         return dict((col.name, col.dtype) for col in self.columns.values())
 
-    @property
-    def dtype_known(self) -> Dict[str, Union[np.dtype, pandas.api.types.CategoricalDtype]]:
-        return dict((col.name, col.dtype) for col in self.columns.values() if col.name in self.known)
 
 
 class NumpyColumnSpecification:
@@ -190,34 +216,35 @@ class NumpyOneHotFieldColumnSpecification(NumpyColumnSpecification):
 
 
 class NumpyCorpusStructure:
-    PORTION_KNOWN = 1
-    PORTION_WIN = 2
-    PORTION_UNKNOWN = 2 + 4
-    PORTION_INTERESTING = 1 + 2 + 4 + 8
 
-    def __init__(self, csv_structure: CsvCorpusStructure, dtype: np.dtype, portion: Optional[int] = None):
+    def __init__(self, csv_structure: CsvCorpusStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING):
         # logging
         self.logger = logging.getLogger(__name__)
         logger = logging.getLogger(__name__)
         logger.log(logging.DEBUG, "Initializing csv structure to numpy structure conversion...")
 
         # initialize variables
-        self.portion = portion if portion is not None else self.PORTION_INTERESTING
+        self.portion = portion
         self.known = csv_structure.known
         self.unknown = csv_structure.unknown
+        self.unknown_without_win = csv_structure.unknown_without_win
         self.win = ('teams.0.win', 'teams.1.win')
         self.interesting = csv_structure.interesting
+        self.interesting_without_win = csv_structure.interesting_without_win
         self.dtype = dtype
 
         # create the column representations
         self.columns: List[NumpyColumnSpecification] = []
         for csv_column in csv_structure.columns.values():
             # if it is not part of this corpus
-            if csv_column in self.known and not self.portion & self.PORTION_KNOWN:
-                continue
-            if csv_column in self.win and not self.portion & self.PORTION_WIN:
-                continue
-            if csv_column in self.unknown and not self.portion & (self.PORTION_UNKNOWN - self.PORTION_WIN):
+            use_column = False
+            if self.portion & PORTION_KNOWN and csv_column.name in self.known:
+                use_column = True
+            if self.portion & PORTION_WIN and csv_column.name in self.win:
+                use_column = True
+            if self.portion & (PORTION_UNKNOWN - PORTION_WIN) and csv_column.name in self.unknown_without_win:
+                use_column = True
+            if not use_column:
                 continue
 
             # create the column representation(s) which are multiple in case of one-hot encoding
@@ -235,17 +262,17 @@ class NumpyCorpusStructure:
         # Sort the column representations so that 'win' are the last two and 'known' comes first.
         # This way we can use slicing and numpy views to access the different portions in most cases.
         column_order = []
-        if self.portion & self.PORTION_KNOWN:
+        if self.portion & PORTION_KNOWN:
             column_order.extend(self.known)
-        if self.portion & (self.PORTION_UNKNOWN - self.PORTION_WIN):
+        if self.portion & (PORTION_UNKNOWN - PORTION_WIN):
             column_order.extend(u for u in self.unknown if u not in self.win)
-        if self.portion & self.PORTION_WIN:
+        if self.portion & PORTION_WIN:
             column_order.extend(self.win)
         self.columns.sort(key=lambda col: column_order.index(col.csv_column_specification.name))
 
     @property
     def known_slice(self) -> slice:
-        if not self.portion & self.PORTION_KNOWN:
+        if not self.portion & PORTION_KNOWN:
             raise LookupError("The 'known' portion is not contained in this corpus.")
         index = 0
         for index, col in enumerate(self.columns):
@@ -255,22 +282,22 @@ class NumpyCorpusStructure:
 
     @property
     def unknown_slice(self) -> slice:
-        if not self.portion & self.PORTION_UNKNOWN:
+        if not self.portion & PORTION_UNKNOWN:
             raise LookupError("The 'unknown' portion is not contained in this corpus.")
-        if not self.portion & self.PORTION_KNOWN:
+        if not self.portion & PORTION_KNOWN:
             return slice(0, None)
         index = self.known_slice.stop
         return slice(index, None)
 
     @property
     def unknown_without_win_slice(self) -> slice:
-        if not self.portion & (self.PORTION_UNKNOWN - self.PORTION_WIN):
+        if not self.portion & (PORTION_UNKNOWN - PORTION_WIN):
             raise LookupError("The 'unknown' portion is not contained in this corpus.")
-        if self.portion & self.PORTION_KNOWN:
+        if self.portion & PORTION_KNOWN:
             start = self.unknown_slice.start
         else:
             start = 0
-        if self.portion & self.PORTION_WIN:
+        if self.portion & PORTION_WIN:
             end = -2
         else:
             end = None
@@ -278,16 +305,16 @@ class NumpyCorpusStructure:
 
     @property
     def interesting_slice(self) -> slice:
-        if not self.portion & self.PORTION_INTERESTING:
+        if not self.portion & PORTION_INTERESTING:
             raise LookupError("The 'interesting' portion is not contained in this corpus.")
         return slice(0, None)
 
     @property
     def interesting_without_win_slice(self) -> slice:
-        if not self.portion & (self.PORTION_INTERESTING - self.PORTION_WIN):
+        if not self.portion & (PORTION_INTERESTING - PORTION_WIN):
             raise LookupError("The 'interesting' portion is not contained in this corpus.")
         interesting_slice = self.interesting_slice
-        if self.portion & self.PORTION_WIN:
+        if self.portion & PORTION_WIN:
             end = -2
         else:
             end = None
@@ -295,11 +322,11 @@ class NumpyCorpusStructure:
 
     @property
     def win_slice(self) -> slice:
-        if not self.portion & self.PORTION_WIN:
+        if not self.portion & PORTION_WIN:
             raise LookupError("The 'win' portion is not contained in this corpus.")
         return slice(-2, None)
 
-    def csv_structured_to_np_structured(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
+    def pd2np(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
         for i, np_col_spec in enumerate(self.columns):
             csv_col_spec = np_col_spec.csv_column_specification
             pd_col = dataframe[csv_col_spec.name]
@@ -314,6 +341,35 @@ class NumpyCorpusStructure:
                 sd = csv_col_spec.sd
                 ndarray[:, i] = (pd_col - mean) / sd
 
+    def np2pd(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
+        assert dataframe.shape[0] == ndarray.shape[0]
+        csv_col_specs = set(np_col_spec.csv_column_specification for np_col_spec in self.columns)
+        for csv_col_spec in csv_col_specs:
+            column_index = next(i for i, np_col_spec in enumerate(self.columns) if np_col_spec.csv_column_specification is csv_col_spec)
+            if csv_col_spec.handling == CsvColumnSpecification.HANDLING_ONEHOT:
+                start_column_index = column_index
+                end_column_index = start_column_index + len(csv_col_spec.format_spec)
+                level_indices = np.argmax(ndarray[:, start_column_index:end_column_index], axis=1)
+                dataframe[csv_col_spec.name] = csv_col_spec.format_spec[level_indices]
+            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and isinstance(csv_col_spec.format_spec, Iterable):
+                start_column_index = column_index
+                end_column_index = start_column_index + 2
+                level_indices = np.argmax(ndarray[:, start_column_index:end_column_index], axis=1)
+                true_value = csv_col_spec.mode
+                false_value = next(level for level in csv_col_spec.format_spec if level != true_value)
+                dataframe[csv_col_spec.name] = np.array([false_value, true_value])[level_indices]
+            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and csv_col_spec.format_spec is int or csv_col_spec.format_spec is float:
+                level_indices = (ndarray[:, column_index] > 0.5).astype(np.int32)
+                mean = csv_col_spec.mean
+                md = csv_col_spec.md
+                true_value = mean + md
+                false_value = mean - md
+                dataframe[csv_col_spec.name] = np.array([false_value, true_value])[level_indices]
+            else:
+                mean = csv_col_spec.mean
+                sd = csv_col_spec.sd
+                dataframe[csv_col_spec.name] = ndarray[:, column_index] * sd + mean
+
     def column_indices_from_names(self, names: Iterable[str]) -> List[int]:
         indices = []
         for index, np_col_spec in enumerate(self.columns):
@@ -323,93 +379,146 @@ class NumpyCorpusStructure:
 
 
 class DataProvider:
-    def __init__(self, data_path: str, dtype: np.dtype):
+    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING):
         self.logger = logging.getLogger(__name__)
         self.data_path = data_path
-        self.csv_structure = CsvCorpusStructure(data_path)
-        self.np_structure = NumpyCorpusStructure(self.csv_structure, dtype)
+        self.csv_structure = CsvCorpusStructure(data_path, portion)
+        self.np_structure = NumpyCorpusStructure(self.csv_structure, dtype, portion)
         self.data: np.ndarray = None
 
     @property
-    def known(self):
+    def known(self) -> np.ndarray:
         return self.data[:, self.np_structure.known_slice]
 
+    @known.setter
+    def known(self, value) -> None:
+        self.data[:, self.np_structure.known_slice] = value
+
     @property
-    def unknown(self):
+    def unknown(self) -> np.ndarray:
         return self.data[:, self.np_structure.unknown_slice]
 
+    @unknown.setter
+    def unknown(self, value) -> None:
+        self.data[:, self.np_structure.unknown_slice] = value
+
     @property
-    def unknown_without_win(self):
+    def unknown_without_win(self) -> np.ndarray:
         return self.data[:, self.np_structure.unknown_without_win_slice]
 
+    @unknown_without_win.setter
+    def unknown_without_win(self, value) -> None:
+        self.data[:, self.np_structure.unknown_without_win_slice] = value
+
     @property
-    def interesting(self):
+    def interesting(self) -> np.ndarray:
         return self.data[:, self.np_structure.interesting_slice]
 
+    @interesting.setter
+    def interesting(self, value) -> None:
+        self.data[:, self.np_structure.interesting_slice] = value
+
     @property
-    def interesting_without_win(self):
+    def interesting_without_win(self) -> np.ndarray:
         return self.data[:, self.np_structure.interesting_without_win_slice]
 
+    @interesting_without_win.setter
+    def interesting_without_win(self, value) -> None:
+        self.data[:, self.np_structure.interesting_without_win_slice] = value
+
     @property
-    def win(self):
+    def win(self) -> np.ndarray:
         return self.data[:, self.np_structure.win_slice]
 
+    @win.setter
+    def win(self, value) -> None:
+        self.data[:, self.np_structure.win_slice] = value
 
-class KnownStdinProvider:
+    def get_as_dataframe(self) -> pandas.DataFrame:
+        self.logger.log(logging.DEBUG, "Calculating the dataframe for numpy data (np shape: {shape!r})...".format(shape=self.data.shape))
+        dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, self.data.shape[0]), columns=tuple(col.name for col in self.csv_structure.columns.values()))
+        self.np_structure.np2pd(dataframe, self.data)
+        for col_name, dtype in self.csv_structure.dtype.items():
+            try:
+                dataframe[col_name] = dataframe[col_name].astype(dtype)
+            except (TypeError, ValueError):
+                # ignore, because we only offer type conversion as a convenience without guarantee
+                pass
+        return dataframe
+
+    def write_as_csv(self, file: io.TextIOBase):
+        dataframe = self.get_as_dataframe()
+        for column in self.csv_structure.columns.values():
+            dataframe[column.name] = dataframe[column.name].fillna(column.default)
+        dataframe.to_csv(file, header=False, index=False)
+
+    def create_empty_data(self, length: int):
+        self.data = np.ndarray(shape=(length, len(self.np_structure.columns)), dtype=self.np_structure.dtype)
+
+    def create_nan_data(self, length: int):
+        self.data = np.full(shape=(length, len(self.np_structure.columns)), fill_value=np.nan, dtype=self.np_structure.dtype)
+
+
+class KnownStdinProvider(DataProvider):
     def __init__(self, data_path: str, dtype: np.dtype):
-        self.logger = logging.getLogger(__name__)
-        self.data_path = data_path
-        self.csv_structure = CsvCorpusStructure(data_path)
-        self.np_structure = NumpyCorpusStructure(self.csv_structure, dtype)
-        self.data: np.ndarray = None
+        super().__init__(data_path, dtype, PORTION_KNOWN)
+        try:
+            self.load()
+        except BaseException as e:
+            self.logger.error("Could not load the necessary data from stdin")
+            raise DataHandlingError("Could not load the necessary data from stdin") from e
 
-    def load_from_csv_stdin(self):
+    def load(self) -> None:
         self.logger.log(logging.INFO, "Reading known matches from stdin...")
-        data = pandas.read_csv(
+        dataframe = pandas.read_csv(
             sys.stdin,
             dtype=self.csv_structure.dtype,
-            header=0,
+            header=None,
+            names=self.csv_structure.known,
             true_values=("True",),
             na_values=('',),
             keep_default_na=False,
         )
         for column in self.csv_structure.columns.values():
-            data[column.name] = data[column.name].fillna(column.default).astype(column.dtype)
-        self.data = self.np_structure.csv_structured_to_np_structured(data)
+            if column.name in dataframe:
+                dataframe[column.name] = dataframe[column.name].fillna(column.default).astype(column.dtype)
+        ndarray: np.ndarray = np.ndarray(shape=(dataframe.shape[0], len(self.np_structure.columns)), dtype=self.np_structure.dtype)
+        self.np_structure.pd2np(dataframe, ndarray)
+        self.data = ndarray
 
 
 class CorpusProvider(DataProvider):
-    def __init__(self, data_path: str, dtype: np.dtype):
-        super().__init__(data_path, dtype)
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING):
+        super().__init__(data_path, dtype, portion)
         try:
             self.load()
         except BaseException as e:
             self.logger.error("Could not load the necessary data for the corpus provider")
             raise DataHandlingError("Could not load the necessary data for the corpus provider") from e
 
-    def load(self):
+    def load(self) -> None:
         if os.path.isfile(self.npy_file_name):
-            self.load_from_npy_file()
+            self.data = self.load_from_npy_file()
         else:
-            self.load_from_csv_file()
+            self.data = self.load_from_csv_file()
             self.save_to_npy_file()
 
-    def load_from_npy_file(self):
+    def load_from_npy_file(self) -> np.ndarray:
         self.logger.log(logging.INFO, "Load {npy_path}".format(npy_path=self.npy_file_name))
-        self.data = np.load(self.npy_file_name, mmap_mode="r")
+        data = np.load(self.npy_file_name, mmap_mode="r")
         self.logger.log(logging.INFO, "Loaded {npy_path}".format(npy_path=self.npy_file_name))
+        return data
 
     @property
-    def npy_file_name(self):
+    def npy_file_name(self) -> str:
         return "{path}/Matches.npy".format(path=self.data_path)
 
-    def save_to_npy_file(self):
+    def save_to_npy_file(self) -> None:
         self.logger.log(logging.INFO, "Save {npy_path}".format(npy_path=self.npy_file_name))
         np.save(self.npy_file_name, self.data)
         self.logger.log(logging.INFO, "Saved {npy_path}".format(npy_path=self.npy_file_name))
 
-    def dataframe_to_ndarray_conversion_thread(self, chunk_queue: queue.Queue, memmap: np.ndarray, chunksize: int, thread_index: int):
+    def dataframe_to_ndarray_conversion_thread(self, chunk_queue: queue.Queue, memmap: np.ndarray, chunksize: int, thread_index: int) -> None:
         done = False
         while not done:
             i, chunk = chunk_queue.get(block=True, timeout=None)
@@ -420,16 +529,16 @@ class CorpusProvider(DataProvider):
                 self.logger.log(logging.DEBUG, "Start converting data #{i:d} on thread {id:d}".format(id=thread_index, i=i))
                 for column in self.csv_structure.columns.values():
                     chunk[column.name] = chunk[column.name].fillna(column.default).astype(column.dtype)
-                self.np_structure.csv_structured_to_np_structured(chunk, memmap[i * chunksize:i * chunksize + chunk.shape[0], :])
+                self.np_structure.pd2np(chunk, memmap[i * chunksize:i * chunksize + chunk.shape[0], :])
                 chunk_queue.task_done()
                 self.logger.log(logging.INFO, "Thread {id:d} is done with conversion of chunk #{i:d}".format(id=thread_index, i=i))
 
-    def load_from_csv_file(self):
+    def load_from_csv_file(self) -> np.ndarray:
         self.logger.log(logging.INFO, "Importing Matches.csv...")
         self.logger.log(logging.INFO, "Calculating the amount of matches in Matches.csv to initialize matrix of appropriate size...")
         match_count = self.csv_structure.count_matches()
         with tempfile.NamedTemporaryFile(dir=self.data_path) as f:
-            self.data: np.ndarray = np.memmap(f, mode="w+", shape=(match_count, len(self.np_structure.columns)), dtype=self.np_structure.dtype)
+            ndarray: np.ndarray = np.memmap(f, mode="w+", shape=(match_count, len(self.np_structure.columns)), dtype=self.np_structure.dtype)
         chunksize = 1 << 13
         total_chunk_amount = math.ceil(match_count / chunksize)
         cpu_count = os.cpu_count() or 1
@@ -437,7 +546,7 @@ class CorpusProvider(DataProvider):
         threads = list()
         chunk_queue = queue.Queue(maxsize=thread_count)
         for i in range(thread_count):  # 'cpu_count - 1' because the main cpu is busy filling the queue
-            new_thread = threading.Thread(target=CorpusProvider.dataframe_to_ndarray_conversion_thread, args=(self, chunk_queue, self.data, chunksize, i))
+            new_thread = threading.Thread(target=CorpusProvider.dataframe_to_ndarray_conversion_thread, args=(self, chunk_queue, ndarray, chunksize, i))
             new_thread.start()
             threads.append(new_thread)
         for i, chunk in enumerate(pandas.read_csv(
@@ -454,3 +563,4 @@ class CorpusProvider(DataProvider):
         for i in range(len(threads)):
             chunk_queue.put((None, None), block=True, timeout=None)
         chunk_queue.join()
+        return ndarray

@@ -32,10 +32,7 @@ class ApplicationConfiguration:
                 return int(float(prepared_string[:-len(suffix)].rstrip()) * factor)
         raise ValueError("Can not convert {!r} to an integer.".format(suffixed_si))
 
-    def __init__(self) -> None:
-        self.arguments: Optional[argparse.Namespace] = None
-
-    def load(self, str_arguments: Sequence[str]):
+    def __init__(self, str_arguments: Sequence[str]) -> None:
         argument_parser = argparse.ArgumentParser()
         argument_parser.add_argument(
             '-s', '--stdin',

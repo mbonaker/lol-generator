@@ -2,10 +2,7 @@
 import logging
 import logging.config
 import sys
-import csv
-from io import TextIOBase
 
-import tensorflow as tf
 import numpy as np
 import yaml
 
@@ -27,20 +24,15 @@ def handle_all_inputs(config: ApplicationConfiguration):
         else:
             handle_input(args)
     corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16))
-    known = corpus.known.shape
-    unknown = corpus.unknown.shape
-    unknown_ww = corpus.unknown_without_win.shape
-    interesting = corpus.interesting.shape
-    interesting_ww = corpus.interesting_without_win.shape
-    win = corpus.win.shape
-    print("{!s}\n\n{!s}\n\n{!s}\n\n{!s}\n\n{!s}\n\n{!s}".format(known, unknown, unknown_ww, interesting, interesting_ww, win))
     if config.should_read_stdin:
-        input_reader = csv.DictReader(sys.stdin, fieldnames=csv_structure.known)
-        for input_dict in input_reader:
-            handle_input([input_dict[col] for col in known_columns])
+        in_data = dataprovider.KnownStdinProvider("../data", np.dtype(np.float16))
+        out_data = dataprovider.DataProvider("../data", np.dtype(np.float16), dataprovider.PORTION_INTERESTING - dataprovider.PORTION_WIN)
+        out_data.create_nan_data(in_data.known.shape[0])
+        out_data.known = in_data.known
+        out_data.write_as_csv(sys.stdout)
 
 
 if __name__ == '__main__':
     with open("logging.yaml", 'rt') as logging_yaml_file:
         logging.config.dictConfig(yaml.safe_load(logging_yaml_file.read()))
-    handle_all_inputs(ApplicationConfiguration())
+    handle_all_inputs(ApplicationConfiguration(sys.argv[1:]))
