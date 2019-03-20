@@ -15,11 +15,9 @@ To use the _dataprovider_ module, you may need about 11 GB of free disk space at
  * spell_names.csv
  * Matches.csv
  * columns
-   * all
    * interesting
    * interesting.csv
    * known
-   * uninteresting
    * unknown
 
 ## Usage
@@ -35,7 +33,7 @@ data = dataprovider.CorpusProvider("C:\\Path\\to\\data\\", np.dtype(np.float32))
 # get the 'interesting' data without 'win'
 interesting_data = data.interesting_without_win
 
-# only use the first half of that 'known - win' data
+# only use the first half of that 'interesting - win' data
 interesting_first_half = np.array_split(interesting_data, 2)[0]
 
 # other available data partitions are these:
