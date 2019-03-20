@@ -32,11 +32,11 @@ import dataprovider
 # get the python data matrix ready to go
 data = dataprovider.CorpusProvider("C:\\Path\\to\\data\\", np.dtype(np.float32))
 
-# get the 'known' data without 'win'
-known_data = data.unknown_without_win
+# get the 'interesting' data without 'win'
+interesting_data = data.interesting_without_win
 
 # only use the first half of that 'known - win' data
-known_first_half = np.array_split(known_data, 2)[0]
+interesting_first_half = np.array_split(interesting_data, 2)[0]
 
 # other available data partitions are these:
 partitions = [
