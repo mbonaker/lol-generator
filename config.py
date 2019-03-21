@@ -1,5 +1,7 @@
 from typing import *
 import argparse
+import numpy as np
+import tensorflow as tf
 
 
 class ApplicationConfiguration:
@@ -39,11 +41,59 @@ class ApplicationConfiguration:
             action='store_true',
             help="If this flag is set, input from stdin is used as 'known' data for which the 'unknown' data will be generated. Provide the data with one match per line (use the new line character alias \"\n\"). The data per match needs to be comma separated data columns in the order that can be seen in the file 'columns/known'.",
         )
+        argument_parser.add_argument(
+            '-t', '--train',
+            action='store_true',
+            help="If this flag is set, the corpus will be used to train the neural network.",
+        )
         self.arguments = argument_parser.parse_args(str_arguments)
 
     @property
     def should_read_stdin(self) -> bool:
         return self.arguments.stdin
+
+    @property
+    def should_train(self) -> bool:
+        return self.arguments.train
+
+    @property
+    def test_data_amount(self) -> int:
+        return 1 << 14  # ~16 k
+
+    @property
+    def dtype(self) -> np.dtype:
+        return np.dtype(np.float16)
+
+    @property
+    def batch_size(self) -> int:
+        return 1 << 16  # ~64 k
+
+    @property
+    def hidden_layer_structure(self) -> Tuple[int, ...]:
+        return 2000, 500, 20
+
+    @property
+    def seed(self) -> int:
+        return 0
+
+    @property
+    def lambda_(self) -> float:
+        return 0
+
+    @property
+    def tensorboard_path(self) -> str:
+        return "./tensorboard"
+
+    @property
+    def steps(self) -> int:
+        return 10000
+
+    @property
+    def optimizer(self) -> tf.train.Optimizer:
+        return tf.train.AdamOptimizer(
+            learning_rate=0.01,
+            epsilon=1e-4,
+        )
 
     def __str__(self) -> str:
         return repr(self.arguments)

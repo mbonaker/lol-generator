@@ -3,27 +3,30 @@ import logging
 import logging.config
 import sys
 
+import tensorflow as tf
 import numpy as np
 import yaml
 
 import dataprovider
+from nn import NeuralNetwork
 from config import ApplicationConfiguration
 
 
-def handle_input(known):
-    csv_structure = dataprovider.CsvCorpusStructure("../data")
-    print(",".join("0" for _ in range(len(csv_structure.known) + len(csv_structure.unknown) - 2)))
-
-
 def handle_all_inputs(config: ApplicationConfiguration):
-    csv_structure = dataprovider.CsvCorpusStructure("../data")
-    args = sys.argv[1:]
-    if args:
-        if len(args) != len(csv_structure.known):
-            print("Warning! This program takes 0 or " + str(len(csv_structure.known)) + " parameters but not " + str(len(args)), file=sys.stderr)
-        else:
-            handle_input(args)
     corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16))
+
+    if config.should_train:
+        nn = NeuralNetwork(corpus, config)
+        with tf.Session() as session:
+            nn.start_session(session)
+            for i in range(0, config.steps):
+                nn.train(session)
+                if i % 100 == 0:
+                    nn.train_eval(session)
+                if i % 1000 == 0:
+                    nn.test_eval(session)
+            nn.stop_session()
+
     if config.should_read_stdin:
         in_data = dataprovider.KnownStdinProvider("../data", np.dtype(np.float16))
         out_data = dataprovider.DataProvider("../data", np.dtype(np.float16), dataprovider.PORTION_INTERESTING - dataprovider.PORTION_WIN)

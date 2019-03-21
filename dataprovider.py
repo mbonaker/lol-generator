@@ -270,61 +270,65 @@ class NumpyCorpusStructure:
             column_order.extend(self.win)
         self.columns.sort(key=lambda col: column_order.index(col.csv_column_specification.name))
 
+    def get_portion_slice(self, portion: int):
+        if not self.portion & portion:
+            raise LookupError("The portion to take a slice from is not contained in this corpus.")
+        if portion == PORTION_KNOWN:
+            index = 0
+            for index, col in enumerate(self.columns):
+                if col.csv_column_specification.name not in self.known:
+                    return slice(0, index - 1)
+            return slice(0, index)
+        elif portion == PORTION_UNKNOWN:
+            if not self.portion & PORTION_KNOWN:
+                return slice(0, None)
+            index = self.known_slice.stop
+            return slice(index, None)
+        elif portion == PORTION_UNKNOWN - PORTION_WIN:
+            if self.portion & PORTION_KNOWN:
+                start = self.unknown_slice.start
+            else:
+                start = 0
+            if self.portion & PORTION_WIN:
+                end = -4
+            else:
+                end = None
+            return slice(start, end)
+        elif portion == PORTION_INTERESTING:
+            return slice(0, None)
+        elif portion == PORTION_INTERESTING - PORTION_WIN:
+            interesting_slice = self.interesting_slice
+            if self.portion & PORTION_WIN:
+                end = -4
+            else:
+                end = None
+            return slice(interesting_slice.start, end)
+        elif portion == PORTION_WIN:
+            return slice(-4, None)
+
     @property
     def known_slice(self) -> slice:
-        if not self.portion & PORTION_KNOWN:
-            raise LookupError("The 'known' portion is not contained in this corpus.")
-        index = 0
-        for index, col in enumerate(self.columns):
-            if col.csv_column_specification.name not in self.known:
-                return slice(0, index - 1)
-        return slice(0, index)
+        return self.get_portion_slice(PORTION_KNOWN)
 
     @property
     def unknown_slice(self) -> slice:
-        if not self.portion & PORTION_UNKNOWN:
-            raise LookupError("The 'unknown' portion is not contained in this corpus.")
-        if not self.portion & PORTION_KNOWN:
-            return slice(0, None)
-        index = self.known_slice.stop
-        return slice(index, None)
+        return self.get_portion_slice(PORTION_UNKNOWN)
 
     @property
     def unknown_without_win_slice(self) -> slice:
-        if not self.portion & (PORTION_UNKNOWN - PORTION_WIN):
-            raise LookupError("The 'unknown' portion is not contained in this corpus.")
-        if self.portion & PORTION_KNOWN:
-            start = self.unknown_slice.start
-        else:
-            start = 0
-        if self.portion & PORTION_WIN:
-            end = -2
-        else:
-            end = None
-        return slice(start, end)
+        return self.get_portion_slice(PORTION_UNKNOWN - PORTION_WIN)
 
     @property
     def interesting_slice(self) -> slice:
-        if not self.portion & PORTION_INTERESTING:
-            raise LookupError("The 'interesting' portion is not contained in this corpus.")
-        return slice(0, None)
+        return self.get_portion_slice(PORTION_INTERESTING)
 
     @property
     def interesting_without_win_slice(self) -> slice:
-        if not self.portion & (PORTION_INTERESTING - PORTION_WIN):
-            raise LookupError("The 'interesting' portion is not contained in this corpus.")
-        interesting_slice = self.interesting_slice
-        if self.portion & PORTION_WIN:
-            end = -2
-        else:
-            end = None
-        return slice(interesting_slice.start, end)
+        return self.get_portion_slice(PORTION_INTERESTING - PORTION_WIN)
 
     @property
     def win_slice(self) -> slice:
-        if not self.portion & PORTION_WIN:
-            raise LookupError("The 'win' portion is not contained in this corpus.")
-        return slice(-2, None)
+        return self.get_portion_slice(PORTION_WIN)
 
     def pd2np(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
         for i, np_col_spec in enumerate(self.columns):
@@ -433,6 +437,12 @@ class DataProvider:
     @win.setter
     def win(self, value) -> None:
         self.data[:, self.np_structure.win_slice] = value
+
+    def get_ndarray(self, portion: Optional[int] = None):
+        if portion is None:
+            return self.data
+        else:
+            return self.data[:, self.np_structure.get_portion_slice(portion)]
 
     def get_as_dataframe(self) -> pandas.DataFrame:
         self.logger.log(logging.DEBUG, "Calculating the dataframe for numpy data (np shape: {shape!r})...".format(shape=self.data.shape))
