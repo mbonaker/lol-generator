@@ -13,7 +13,6 @@ import logging
 from typing import *
 
 
-from indexed import IndexedOrderedDict
 from pandas.core.dtypes.dtypes import CategoricalDtype
 from pandas.api.types import is_numeric_dtype
 
@@ -154,12 +153,11 @@ class CsvCorpusStructure:
         self.champion_names = self.read_names_csv("{path}/champion_names.csv".format(path=data_path))
         self.spell_names = self.read_names_csv("{path}/spell_names.csv".format(path=data_path))
         with open("{path}/columns/interesting.csv".format(path=data_path), "r") as f:
-            self.columns: MutableMapping[str, CsvColumnSpecification] = IndexedOrderedDict()
+            self.columns: List[CsvColumnSpecification] = list()
             csv_data = csv.DictReader(f)
             for line in csv_data:
                 if line['Property Path'] in portion_set:
-                    spec = CsvColumnSpecification.from_dict(line)
-                    self.columns[spec.name] = spec
+                    self.columns.append(CsvColumnSpecification.from_dict(line))
 
     @staticmethod
     def read_names_csv(full_path: str) -> Dict[int, str]:
@@ -191,7 +189,7 @@ class CsvCorpusStructure:
 
     @property
     def dtype(self) -> Dict[str, Union[np.dtype, pandas.api.types.CategoricalDtype]]:
-        return dict((col.name, col.dtype) for col in self.columns.values())
+        return dict((col.name, col.dtype) for col in self.columns)
 
 
 
@@ -235,7 +233,7 @@ class NumpyCorpusStructure:
 
         # create the column representations
         self.columns: List[NumpyColumnSpecification] = []
-        for csv_column in csv_structure.columns.values():
+        for csv_column in csv_structure.columns:
             # if it is not part of this corpus
             use_column = False
             if self.portion & PORTION_KNOWN and csv_column.name in self.known:
@@ -446,7 +444,7 @@ class DataProvider:
 
     def get_as_dataframe(self) -> pandas.DataFrame:
         self.logger.log(logging.DEBUG, "Calculating the dataframe for numpy data (np shape: {shape!r})...".format(shape=self.data.shape))
-        dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, self.data.shape[0]), columns=tuple(col.name for col in self.csv_structure.columns.values()))
+        dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, self.data.shape[0]), columns=tuple(col.name for col in self.csv_structure.columns))
         self.np_structure.np2pd(dataframe, self.data)
         for col_name, dtype in self.csv_structure.dtype.items():
             try:
@@ -458,7 +456,7 @@ class DataProvider:
 
     def write_as_csv(self, file: io.TextIOBase):
         dataframe = self.get_as_dataframe()
-        for column in self.csv_structure.columns.values():
+        for column in self.csv_structure.columns:
             dataframe[column.name] = dataframe[column.name].fillna(column.default)
         dataframe.to_csv(file, header=False, index=False)
 
@@ -489,7 +487,7 @@ class KnownStdinProvider(DataProvider):
             na_values=('',),
             keep_default_na=False,
         )
-        for column in self.csv_structure.columns.values():
+        for column in self.csv_structure.columns:
             if column.name in dataframe:
                 dataframe[column.name] = dataframe[column.name].fillna(column.default).astype(column.dtype)
         ndarray: np.ndarray = np.ndarray(shape=(dataframe.shape[0], len(self.np_structure.columns)), dtype=self.np_structure.dtype)
@@ -537,7 +535,7 @@ class CorpusProvider(DataProvider):
                 chunk_queue.task_done()
             else:
                 self.logger.log(logging.DEBUG, "Start converting data #{i:d} on thread {id:d}".format(id=thread_index, i=i))
-                for column in self.csv_structure.columns.values():
+                for column in self.csv_structure.columns:
                     chunk[column.name] = chunk[column.name].fillna(column.default).astype(column.dtype)
                 self.np_structure.pd2np(chunk, memmap[i * chunksize:i * chunksize + chunk.shape[0], :])
                 chunk_queue.task_done()
