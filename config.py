@@ -60,12 +60,16 @@ class ApplicationConfiguration:
         return 1 << 14  # ~16 k
 
     @property
+    def validation_data_amount(self) -> int:
+        return 1 << 14  # ~16 k
+
+    @property
     def dtype(self) -> np.dtype:
         return np.dtype(np.float16)
 
     @property
     def batch_size(self) -> int:
-        return 1 << 16  # ~64 k
+        return 1 << 13  # ~8 k
 
     @property
     def hidden_layer_structure(self) -> Tuple[int, ...]:
@@ -81,14 +85,16 @@ class ApplicationConfiguration:
 
     @property
     def tensorboard_path(self) -> str:
-        return "./tensorboard"
+        return "./tensorboard/5"
 
     @property
     def steps(self) -> int:
         return 10000
 
     @property
-    def optimizer(self) -> str:
+    def optimizer(self):
+        import tensorflow as tf
+
         return tf.train.AdamOptimizer(
             learning_rate=0.01,
             epsilon=1e-4,

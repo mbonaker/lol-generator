@@ -381,6 +381,24 @@ class NumpyCorpusStructure:
             end = start + 1
         return slice(start, end)
 
+    def generate_handling_slices(self):
+        current_handling = None
+        current_start = 0
+        current_end = 0
+        for np_col_spec in self.columns:
+            csv_col_spec = np_col_spec.csv_column_specification
+            if current_handling is not None and csv_col_spec.handling != current_handling:
+                yield (slice(current_start, current_end), current_handling)
+                current_start = current_end
+                current_end += 1
+                current_handling = csv_col_spec.handling
+            else:
+                current_end += 1
+            if current_handling is None:
+                current_handling = csv_col_spec.handling
+        if current_handling is not None:
+            yield (slice(current_start, current_end), current_handling)
+
 
 class DataProvider:
     def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING):

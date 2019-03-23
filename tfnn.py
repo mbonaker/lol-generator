@@ -1,11 +1,12 @@
 import logging
+import io
 from time import perf_counter
-from typing import Optional
+from typing import Optional, TextIO
 
 import tensorflow as tf
 import numpy as np
 
-import dataprovider
+import dataprovider as dp
 from config import ApplicationConfiguration
 from nn import NeuralNetwork
 
@@ -16,8 +17,10 @@ PURPOSE_PREDICT = 4
 
 class TrainableNeuralNetwork(NeuralNetwork):
 
-    def __init__(self, data: dataprovider.DataProvider, config: ApplicationConfiguration):
+    def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration):
         super().__init__(data, config)
+
+        unknown_data_structure = dp.NumpyCorpusStructure(dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN), self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
 
         #
         # Create the dataset and iterator
@@ -96,22 +99,21 @@ class TrainableNeuralNetwork(NeuralNetwork):
             if w is not None:
                 regularization += tf.nn.l2_loss(w)
         regularization *= config.lambda_
-        predictions = tf.constant([], shape=(logit.shape[0], 0), dtype=config.dtype, verify_shape=True)
+        prediction_slices = []
         loss = 0
-        for csv_column in self.data.csv_structure.columns:
-            full_np_slice = self.data.np_structure.csv_column_spec_to_np_slice(csv_column)
-            np_slice = slice(full_np_slice.start - self.data.known.shape[1], full_np_slice.stop - self.data.known.shape[1])
-            y_real = y[:, np_slice]
-            y_pred = predictions[:, np_slice]
-            if csv_column.handling == dataprovider.CsvColumnSpecification.HANDLING_ONEHOT:
+        for data_slice, handling in unknown_data_structure.generate_handling_slices():
+            y_real = y[:, data_slice]
+            y_pred = logit[:, data_slice]
+            if handling == dp.CsvColumnSpecification.HANDLING_ONEHOT:
+                loss = tf.losses.softmax_cross_entropy(onehot_labels=y_real, logits=y_pred, reduction=tf.losses.Reduction.MEAN)
                 y_pred = tf.nn.sigmoid(y_pred)
-                loss = tf.losses.softmax_cross_entropy(labels=y_real, logits=y_pred, reduction=tf.losses.Reduction.MEAN)
-            elif csv_column.handling == dataprovider.CsvColumnSpecification.HANDLING_BOOL:
+            elif handling == dp.CsvColumnSpecification.HANDLING_BOOL:
                 y_pred = tf.nn.sigmoid(y_pred)
-                loss = tf.losses.log_loss(labels=y_real, logits=y_pred, reduction=tf.losses.Reduction.MEAN)
+                loss = tf.losses.log_loss(labels=y_real, predictions=y_pred, reduction=tf.losses.Reduction.MEAN)
             else:
                 loss = tf.reduce_mean(tf.abs(y_real - y_pred))
-            predictions = tf.concat(predictions, y_pred, axis=1)
+            prediction_slices.append(y_pred)
+        predictions = tf.concat(prediction_slices, axis=1)
         self.layers.append((w, b, predictions))
 
         #
@@ -120,11 +122,13 @@ class TrainableNeuralNetwork(NeuralNetwork):
         error = tf.subtract(predictions, y, "error")
         self.mae = tf.reduce_mean(tf.abs(error), axis=0, name="MAE")
         self.train_summaries = tf.summary.merge([
-            tf.summary.histogram("train_mean_error", self.mae),
+            # tf.summary.histogram("train_mean_error", self.mae),
+            tf.summary.scalar("train_loss", loss),
         ])
         self.test_summaries = tf.summary.merge([
             tf.summary.histogram("test_mean_error", self.mae),
             tf.summary.scalar("test_error_duration", self.mae[0]),
+            tf.summary.scalar("test_loss", loss),
         ])
 
         #
@@ -142,10 +146,11 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.test_handle = None
         self.tf_writer: Optional[tf.summary.FileWriter] = None
         self.running_duration = 0
+        self.need_tf_weight_reassignment = False
 
     def make_train_ndarray_batch_generator(self):
         def generate_ndarray_batches():
-            ndarray = self.data.get_ndarray()[0:-self.config.test_data_amount, :]
+            ndarray = self.data.get_ndarray()[0:-self.config.test_data_amount - self.config.validation_data_amount, :]
             for batch in np.split(ndarray, np.arange(0, ndarray.shape[0], self.config.batch_size), axis=0):
                 x = batch[:, self.data.np_structure.known_slice]
                 y = batch[:, self.data.np_structure.unknown_without_win_slice]
@@ -154,7 +159,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
 
     def make_test_ndarray_generator(self):
         def generate_ndarray():
-            ndarray = self.data.get_ndarray()[-self.config.test_data_amount:, :]
+            ndarray = self.data.get_ndarray()[-self.config.test_data_amount - self.config.validation_data_amount:-self.config.test_data_amount, :]
             x = ndarray[:, self.data.np_structure.known_slice]
             y = ndarray[:, self.data.np_structure.unknown_without_win_slice]
             yield (x, y)
@@ -170,7 +175,8 @@ class TrainableNeuralNetwork(NeuralNetwork):
 
         self.tf_writer = tf.summary.FileWriter(self.config.tensorboard_path, sess.graph, flush_secs=10)
 
-    def train(self, sess: tf.Session):
+    def train_one_step(self, sess: tf.Session):
+        self.reassign_tf_weights_if_necessary(sess)
         self.logger.log(logging.DEBUG, "Start training...")
         time_before = perf_counter()
         sess.run(self.minimizer, feed_dict={self.iterator_handle: self.train_handle})
@@ -178,17 +184,59 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.logger.log(logging.DEBUG, "Training done.")
 
     def train_eval(self, sess: tf.Session):
+        self.reassign_tf_weights_if_necessary(sess)
         self.logger.log(logging.DEBUG, "Start training evaluation...")
         step, summaries = sess.run([self.global_step, self.train_summaries], feed_dict={self.iterator_handle: self.train_handle})
         self.logger.log(logging.DEBUG, "Training evaluation done.")
         self.tf_writer.add_summary(summaries, step)
 
-    def test_eval(self, sess: tf.Session):
+    def test_eval(self, sess: tf.Session) -> float:
+        self.reassign_tf_weights_if_necessary(sess)
         self.logger.log(logging.DEBUG, "Start test evaluation...")
-        step, summaries = sess.run([self.global_step, self.test_summaries], feed_dict={self.iterator_handle: self.test_handle})
+        step, summaries, mae = sess.run([
+            self.global_step,
+            self.test_summaries,
+            tf.reduce_mean(self.mae),
+        ], feed_dict={self.iterator_handle: self.test_handle})
         self.logger.log(logging.DEBUG, "Test evaluation done.")
         self.tf_writer.add_summary(summaries, step)
+        return mae
 
     def stop_session(self):
         self.tf_writer.close()
         tf.reset_default_graph()
+
+    def reassign_tf_weights_if_necessary(self, sess: tf.Session):
+        if self.need_tf_weight_reassignment:
+            self.logger.log(logging.DEBUG, "Reassign the tensorflow weights.")
+            for (np_w, np_b), (tf_w, tf_b, _) in zip(zip(self.weights, self.biases), (layer for layer in self.layers if layer[0] is not None)):
+                sess.run(tf.assign(tf_w, np_w))
+                sess.run(tf.assign(tf_b, np_b))
+
+    def update_tf_weights_to_np_weights(self, sess: tf.Session):
+        self.weights = sess.run([w for w, b, p in self.layers if w is not None])
+        self.biases = sess.run([b for w, b, p in self.layers if b is not None])
+
+    def load_weights(self, file_name: str):
+        super().load_weights(file_name)
+        self.need_tf_weight_reassignment = True
+
+    def save_tf_weights(self, file_name: str, sess: tf.Session):
+        self.update_tf_weights_to_np_weights(sess)
+        self.save_weights(file_name)
+
+    def train(self, file_name: str):
+        smallest_error = float('inf')
+        with tf.Session() as session:
+            self.start_session(session)
+            for i in range(0, self.config.steps):
+                if i % 100 == 0:
+                    self.train_eval(session)
+                if i % 1000 == 0:
+                    mae = self.test_eval(session)
+                    if mae < smallest_error:
+                        smallest_error = mae
+                        self.save_tf_weights(file_name, session)
+                        self.logger.log(logging.INFO, "New best MAE: {mae:g}")
+                self.train_one_step(session)
+            self.stop_session()
