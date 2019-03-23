@@ -12,7 +12,6 @@ import pandas
 import logging
 from typing import *
 
-
 from pandas.core.dtypes.dtypes import CategoricalDtype
 from pandas.api.types import is_numeric_dtype
 
@@ -192,7 +191,6 @@ class CsvCorpusStructure:
         return dict((col.name, col.dtype) for col in self.columns)
 
 
-
 class NumpyColumnSpecification:
     def __init__(self, csv_column_specification: CsvColumnSpecification):
         self.csv_column_specification = csv_column_specification
@@ -347,21 +345,17 @@ class NumpyCorpusStructure:
         assert dataframe.shape[0] == ndarray.shape[0]
         csv_col_specs = set(np_col_spec.csv_column_specification for np_col_spec in self.columns)
         for csv_col_spec in csv_col_specs:
-            column_index = next(i for i, np_col_spec in enumerate(self.columns) if np_col_spec.csv_column_specification is csv_col_spec)
+            column_slice = self.csv_column_spec_to_np_slice(csv_col_spec)
             if csv_col_spec.handling == CsvColumnSpecification.HANDLING_ONEHOT:
-                start_column_index = column_index
-                end_column_index = start_column_index + len(csv_col_spec.format_spec)
-                level_indices = np.argmax(ndarray[:, start_column_index:end_column_index], axis=1)
+                level_indices = np.argmax(ndarray[:, column_slice], axis=1)
                 dataframe[csv_col_spec.name] = csv_col_spec.format_spec[level_indices]
             elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and isinstance(csv_col_spec.format_spec, Iterable):
-                start_column_index = column_index
-                end_column_index = start_column_index + 2
-                level_indices = np.argmax(ndarray[:, start_column_index:end_column_index], axis=1)
+                level_indices = (ndarray[:, column_slice] > 0.5).astype(np.int32)
                 true_value = csv_col_spec.mode
                 false_value = next(level for level in csv_col_spec.format_spec if level != true_value)
                 dataframe[csv_col_spec.name] = np.array([false_value, true_value])[level_indices]
             elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and csv_col_spec.format_spec is int or csv_col_spec.format_spec is float:
-                level_indices = (ndarray[:, column_index] > 0.5).astype(np.int32)
+                level_indices = (ndarray[:, column_slice] > 0.5).astype(np.int32)
                 mean = csv_col_spec.mean
                 md = csv_col_spec.md
                 true_value = mean + md
@@ -370,7 +364,7 @@ class NumpyCorpusStructure:
             else:
                 mean = csv_col_spec.mean
                 sd = csv_col_spec.sd
-                dataframe[csv_col_spec.name] = ndarray[:, column_index] * sd + mean
+                dataframe[csv_col_spec.name] = ndarray[:, column_slice] * sd + mean
 
     def column_indices_from_names(self, names: Iterable[str]) -> List[int]:
         indices = []
@@ -378,6 +372,14 @@ class NumpyCorpusStructure:
             if np_col_spec.csv_column_specification.name in names:
                 indices.append(index)
         return indices
+
+    def csv_column_spec_to_np_slice(self, csv_column: CsvColumnSpecification):
+        start = next(i for i, np_col_spec in enumerate(self.columns) if np_col_spec.csv_column_specification is csv_column)
+        if csv_column.handling == CsvColumnSpecification.HANDLING_ONEHOT:
+            end = start + len(csv_column.format_spec)
+        else:
+            end = start + 1
+        return slice(start, end)
 
 
 class DataProvider:

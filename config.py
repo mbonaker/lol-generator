@@ -1,7 +1,6 @@
 from typing import *
 import argparse
 import numpy as np
-import tensorflow as tf
 
 
 class ApplicationConfiguration:
@@ -89,7 +88,7 @@ class ApplicationConfiguration:
         return 10000
 
     @property
-    def optimizer(self) -> tf.train.Optimizer:
+    def optimizer(self) -> str:
         return tf.train.AdamOptimizer(
             learning_rate=0.01,
             epsilon=1e-4,
