@@ -45,6 +45,11 @@ class ApplicationConfiguration:
             action='store_true',
             help="If this flag is set, the corpus will be used to train the neural network.",
         )
+        argument_parser.add_argument(
+            '-l', '--label',
+            type=str,
+            help="The name of this instance running (used for tensorboard).",
+        )
         self.arguments = argument_parser.parse_args(str_arguments)
 
     @property
@@ -69,11 +74,11 @@ class ApplicationConfiguration:
 
     @property
     def batch_size(self) -> int:
-        return 1 << 13  # ~8 k
+        return 1 << 12  # ~4 k
 
     @property
     def hidden_layer_structure(self) -> Tuple[int, ...]:
-        return 2000, 500, 20
+        return 1 << 11, 1 << 10
 
     @property
     def seed(self) -> int:
@@ -85,18 +90,18 @@ class ApplicationConfiguration:
 
     @property
     def tensorboard_path(self) -> str:
-        return "./tensorboard/5"
+        return "./tensorboard/{label}".format(label=self.arguments.label)
 
     @property
-    def steps(self) -> int:
-        return 10000
+    def training_amount(self) -> int:
+        return 1 << 24
 
     @property
     def optimizer(self):
         import tensorflow as tf
 
         return tf.train.AdamOptimizer(
-            learning_rate=0.01,
+            learning_rate=0.001,
             epsilon=1e-4,
         )
 

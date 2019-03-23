@@ -20,7 +20,8 @@ class TrainableNeuralNetwork(NeuralNetwork):
     def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration):
         super().__init__(data, config)
 
-        unknown_data_structure = dp.NumpyCorpusStructure(dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN), self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
 
         #
         # Create the dataset and iterator
@@ -100,18 +101,18 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 regularization += tf.nn.l2_loss(w)
         regularization *= config.lambda_
         prediction_slices = []
-        loss = 0
+        self.loss = 0
         for data_slice, handling in unknown_data_structure.generate_handling_slices():
             y_real = y[:, data_slice]
             y_pred = logit[:, data_slice]
             if handling == dp.CsvColumnSpecification.HANDLING_ONEHOT:
-                loss = tf.losses.softmax_cross_entropy(onehot_labels=y_real, logits=y_pred, reduction=tf.losses.Reduction.MEAN)
+                self.loss = tf.losses.softmax_cross_entropy(onehot_labels=y_real, logits=y_pred, reduction=tf.losses.Reduction.MEAN)
                 y_pred = tf.nn.sigmoid(y_pred)
             elif handling == dp.CsvColumnSpecification.HANDLING_BOOL:
                 y_pred = tf.nn.sigmoid(y_pred)
-                loss = tf.losses.log_loss(labels=y_real, predictions=y_pred, reduction=tf.losses.Reduction.MEAN)
+                self.loss = tf.losses.log_loss(labels=y_real, predictions=y_pred, reduction=tf.losses.Reduction.MEAN)
             else:
-                loss = tf.reduce_mean(tf.abs(y_real - y_pred))
+                self.loss = tf.reduce_mean(tf.abs(y_real - y_pred))
             prediction_slices.append(y_pred)
         predictions = tf.concat(prediction_slices, axis=1)
         self.layers.append((w, b, predictions))
@@ -120,16 +121,22 @@ class TrainableNeuralNetwork(NeuralNetwork):
         # Create the evaluation of the DNN (loss/error and stuff)
         #
         error = tf.subtract(predictions, y, "error")
-        self.mae = tf.reduce_mean(tf.abs(error), axis=0, name="MAE")
+        self.mae = tf.reduce_mean(tf.math.abs(error), axis=0, name="MAE")
         self.train_summaries = tf.summary.merge([
             # tf.summary.histogram("train_mean_error", self.mae),
-            tf.summary.scalar("train_loss", loss),
+            tf.summary.scalar("train_loss", self.loss),
         ])
-        self.test_summaries = tf.summary.merge([
+        test_evaluation_summaries = [
             tf.summary.histogram("test_mean_error", self.mae),
-            tf.summary.scalar("test_error_duration", self.mae[0]),
-            tf.summary.scalar("test_loss", loss),
-        ])
+            tf.summary.scalar("test_loss", self.loss),
+        ]
+        for csv_column in unknown_csv_structure.columns:
+            column_slice = unknown_data_structure.csv_column_spec_to_np_slice(csv_column)
+            column_mae = tf.reduce_mean(tf.abs(error[:, column_slice]))
+            summary = tf.summary.scalar("test_error_{column_name:s}".format(column_name=csv_column.name), column_mae)
+            test_evaluation_summaries.append(summary)
+        self.test_summaries = tf.summary.merge(test_evaluation_summaries)
+
 
         #
         # Create the optimization of the DNN (gradient and stuff)
@@ -137,7 +144,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         # grads_and_vars is a list of tuples (gradient, variable)
         parameters = [w for w, _, _ in self.layers if w is not None] + [b for _, b, _ in self.layers if b is not None]
-        grads_and_vars = config.optimizer.compute_gradients(loss, var_list=parameters)
+        grads_and_vars = config.optimizer.compute_gradients(self.loss, var_list=parameters)
         capped_grads_and_vars = [(tf.clip_by_value(gv[0], -5., 5.), gv[1]) for gv in grads_and_vars]
         # apply the capped gradients.
         self.minimizer = config.optimizer.apply_gradients(capped_grads_and_vars, global_step=self.global_step)
@@ -188,23 +195,25 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.logger.log(logging.DEBUG, "Start training evaluation...")
         step, summaries = sess.run([self.global_step, self.train_summaries], feed_dict={self.iterator_handle: self.train_handle})
         self.logger.log(logging.DEBUG, "Training evaluation done.")
-        self.tf_writer.add_summary(summaries, step)
+        training_amount = step * self.config.batch_size
+        self.tf_writer.add_summary(summaries, training_amount)
 
     def test_eval(self, sess: tf.Session) -> float:
         self.reassign_tf_weights_if_necessary(sess)
         self.logger.log(logging.DEBUG, "Start test evaluation...")
-        step, summaries, mae = sess.run([
+        step, summaries, loss = sess.run([
             self.global_step,
             self.test_summaries,
-            tf.reduce_mean(self.mae),
+            tf.reduce_mean(self.loss),
         ], feed_dict={self.iterator_handle: self.test_handle})
         self.logger.log(logging.DEBUG, "Test evaluation done.")
-        self.tf_writer.add_summary(summaries, step)
-        return mae
+        training_amount = step * self.config.batch_size
+        self.tf_writer.add_summary(summaries, training_amount)
+        return loss
 
     def stop_session(self):
         self.tf_writer.close()
-        tf.reset_default_graph()
+        # tf.reset_default_graph()
 
     def reassign_tf_weights_if_necessary(self, sess: tf.Session):
         if self.need_tf_weight_reassignment:
@@ -226,17 +235,17 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.save_weights(file_name)
 
     def train(self, file_name: str):
-        smallest_error = float('inf')
+        smallest_loss = float('inf')
         with tf.Session() as session:
             self.start_session(session)
-            for i in range(0, self.config.steps):
-                if i % 100 == 0:
+            for i in range(0, self.config.training_amount // self.config.batch_size):
+                training_amount = i * self.config.batch_size
+                if training_amount % (1 << 16) == 0:
                     self.train_eval(session)
-                if i % 1000 == 0:
-                    mae = self.test_eval(session)
-                    if mae < smallest_error:
-                        smallest_error = mae
+                if training_amount % (1 << 19) == 0:
+                    loss = self.test_eval(session)
+                    if loss < smallest_loss:
+                        smallest_loss = loss
                         self.save_tf_weights(file_name, session)
-                        self.logger.log(logging.INFO, "New best MAE: {mae:g}")
+                        self.logger.log(logging.INFO, "New smallest loss: {loss:g}".format(loss=smallest_loss))
                 self.train_one_step(session)
-            self.stop_session()

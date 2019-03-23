@@ -26,7 +26,7 @@ class NeuralNetwork:
         count = int(content['count'])
         for i in range(0, count):
             layer_name = "layer_{i:d}".format(i=i)
-            biases_name = "boases_{i:d}".format(i=i)
+            biases_name = "biases_{i:d}".format(i=i)
             self.weights.append(content[layer_name])
             self.biases.append(content[biases_name])
         assert len(self.weights) == len(self.biases)
