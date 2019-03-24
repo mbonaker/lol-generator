@@ -104,8 +104,12 @@ class ApplicationConfiguration:
         return 0
 
     @property
+    def label(self) -> str:
+        return self.arguments.label
+
+    @property
     def tensorboard_path(self) -> str:
-        return "./tensorboard/{label}".format(label=self.arguments.label)
+        return "./tensorboard/{label}".format(label=self.label)
 
     @property
     def training_amount(self) -> int:
