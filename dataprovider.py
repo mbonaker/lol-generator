@@ -273,7 +273,7 @@ class NumpyCorpusStructure:
             index = 0
             for index, col in enumerate(self.columns):
                 if col.csv_column_specification.name not in self.known:
-                    return slice(0, index - 1)
+                    return slice(0, index)
             return slice(0, index)
         elif portion == PORTION_UNKNOWN:
             if not self.portion & PORTION_KNOWN:
@@ -286,7 +286,7 @@ class NumpyCorpusStructure:
             else:
                 start = 0
             if self.portion & PORTION_WIN:
-                end = -4
+                end = -2
             else:
                 end = None
             return slice(start, end)
@@ -295,12 +295,12 @@ class NumpyCorpusStructure:
         elif portion == PORTION_INTERESTING - PORTION_WIN:
             interesting_slice = self.interesting_slice
             if self.portion & PORTION_WIN:
-                end = -4
+                end = -2
             else:
                 end = None
             return slice(interesting_slice.start, end)
         elif portion == PORTION_WIN:
-            return slice(-4, None)
+            return slice(-2, None)
 
     @property
     def known_slice(self) -> slice:
