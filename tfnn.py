@@ -8,6 +8,7 @@ import numpy as np
 
 import dataprovider as dp
 from config import ApplicationConfiguration
+from config import TrainingStatus
 from nn import NeuralNetwork
 
 PURPOSE_TRAIN = 1
@@ -79,7 +80,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
             b = tf.Variable(tf.random_normal((l, 1), 0, 0.05, dtype=config.dtype, seed=config.seed), name="bias_" + str(i))
             sum_w = tf.matmul(w, x, True, b_is_sparse=x_is_sparse)
             x_is_sparse = False
-            x = tf.nn.relu(tf.add(sum_w, b), "layer_" + str(i))
+            x = config.activation_function(tf.add(sum_w, b), name="layer_" + str(i))
             self.layers.append((w, b, x))
             previous_layer_size = l
         w = tf.Variable(tf.random_normal((previous_layer_size, target_amount), 0, 0.05, dtype=config.dtype, seed=config.seed), name="weights_end")
@@ -141,10 +142,10 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         # grads_and_vars is a list of tuples (gradient, variable)
         parameters = [w for w, _, _ in self.layers if w is not None] + [b for _, b, _ in self.layers if b is not None]
-        grads_and_vars = config.optimizer.compute_gradients(self.loss, var_list=parameters)
+        grads_and_vars = config.optimizer(config.learning_rate).compute_gradients(self.loss, var_list=parameters)
         capped_grads_and_vars = [(tf.clip_by_value(gv[0], -5., 5.), gv[1]) for gv in grads_and_vars]
         # apply the capped gradients.
-        self.minimizer = config.optimizer.apply_gradients(capped_grads_and_vars, global_step=self.global_step)
+        self.minimizer = config.optimizer(config.learning_rate).apply_gradients(capped_grads_and_vars, global_step=self.global_step)
 
         self.train_handle = None
         self.test_handle = None
@@ -231,9 +232,10 @@ class TrainableNeuralNetwork(NeuralNetwork):
         smallest_loss = float('inf')
         with tf.Session() as session:
             self.start_session(session)
-            self.logger.log(logging.DEBUG, "Start loop for training steps...")
-            for i in range(0, self.config.training_amount // self.config.batch_size):
-                training_amount = i * self.config.batch_size
+            trained_batches = 0
+            self.logger.log(logging.DEBUG, "Start training loop")
+            while True:
+                training_amount = trained_batches * self.config.batch_size
                 if training_amount % (1 << 16) == 0:
                     self.logger.log(logging.DEBUG, "Evaluate the network on training data...")
                     self.train_eval(session)
@@ -246,5 +248,10 @@ class TrainableNeuralNetwork(NeuralNetwork):
                         self.save_tf_weights(file_name, session)
                     else:
                         self.logger.log(logging.INFO, "Not smallest loss: {loss:g}.".format(loss=smallest_loss))
+                    self.config.stop_criterion.update(TrainingStatus(self.config, trained_batches, loss))
+                    if self.config.stop_criterion.should_stop():
+                        self.logger.log(logging.INFO, "Stop training loop")
+                        break
                 self.logger.log(logging.DEBUG, "Do one training step...")
                 self.train_one_step(session)
+                trained_batches += 1
