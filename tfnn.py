@@ -92,19 +92,21 @@ class TrainableNeuralNetwork(NeuralNetwork):
         regularization = sum(tf.nn.l2_loss(w) for w, _, _ in self.layers if w is not None)
         regularization *= config.lambda_
         prediction_slices = []
-        self.loss = 0
-        for data_slice, handling in unknown_data_structure.generate_handling_slices():
+        losses = []
+        for data_slice, handling in unknown_data_structure.generate_handling_slices(self.config.ignored_columns):
             y_slice = y[:, data_slice]
             logit_slice = logit[:, data_slice]
-            if handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or \
-               handling == dp.CsvColumnSpecification.HANDLING_BOOL:
+            if handling == dp.CsvColumnSpecification.HANDLING_NONE:
+                y_hat_slice = tf.fill(dims=logit.shape, value=0.0)
+            elif handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or \
+                    handling == dp.CsvColumnSpecification.HANDLING_BOOL:
                 y_hat_slice = tf.nn.sigmoid(logit_slice)
-                self.loss += tf.reduce_mean(tf.losses.sigmoid_cross_entropy(y_slice, logit_slice))
+                losses.append(tf.reduce_mean(tf.losses.sigmoid_cross_entropy(y_slice, logit_slice)))
             else:
                 y_hat_slice = logit_slice
-                self.loss += tf.reduce_mean(tf.abs(y_slice - logit_slice))
+                losses.append(tf.reduce_mean(tf.abs(y_slice - logit_slice)))
             prediction_slices.append(y_hat_slice)
-        self.loss /= len(prediction_slices)
+        self.loss = sum(losses) / len(losses)
         self.loss += regularization
         predictions = tf.concat(prediction_slices, axis=1)
         self.layers.append((w, b, predictions))

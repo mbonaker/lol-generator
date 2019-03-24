@@ -85,6 +85,21 @@ class ApplicationConfiguration:
         return 0
 
     @property
+    def ignored_columns(self) -> Iterable[str]:
+        return (
+            'teams.0.bans.0.championId',
+            'teams.1.bans.0.championId',
+            'teams.0.bans.1.championId',
+            'teams.1.bans.1.championId',
+            'teams.0.bans.2.championId',
+            'teams.1.bans.2.championId',
+            'teams.0.bans.3.championId',
+            'teams.1.bans.3.championId',
+            'teams.0.bans.4.championId',
+            'teams.1.bans.4.championId',
+        )
+
+    @property
     def lambda_(self) -> float:
         return 0
 

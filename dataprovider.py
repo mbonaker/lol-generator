@@ -34,6 +34,7 @@ class CsvColumnSpecification:
     HANDLING_CONTINUOUS = 0
     HANDLING_ONEHOT = 1
     HANDLING_BOOL = 2
+    HANDLING_NONE = 3
     OCCURRENCE_SINGLE = 0
     OCCURRENCE_PERPARTICIPANT = 1
     OCCURRENCE_PERTEAM = 2
@@ -381,21 +382,25 @@ class NumpyCorpusStructure:
             end = start + 1
         return slice(start, end)
 
-    def generate_handling_slices(self):
+    def generate_handling_slices(self, ignored_columns: Iterable[str] = tuple()):
         current_handling = None
         current_start = 0
         current_end = 0
         for np_col_spec in self.columns:
             csv_col_spec = np_col_spec.csv_column_specification
-            if current_handling is not None and csv_col_spec.handling != current_handling:
+            if csv_col_spec.name in ignored_columns:
+                handling = CsvColumnSpecification.HANDLING_NONE
+            else:
+                handling = csv_col_spec.handling
+            if current_handling is not None and handling != current_handling:
                 yield (slice(current_start, current_end), current_handling)
                 current_start = current_end
                 current_end += 1
-                current_handling = csv_col_spec.handling
+                current_handling = handling
             else:
                 current_end += 1
             if current_handling is None:
-                current_handling = csv_col_spec.handling
+                current_handling = handling
         if current_handling is not None:
             yield (slice(current_start, current_end), current_handling)
 
