@@ -89,10 +89,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         #
         # Calculate metrics like error, predictions etc.
         #
-        regularization = tf.constant(0, dtype=config.dtype)
-        for w, _, _ in self.layers:
-            if w is not None:
-                regularization += tf.nn.l2_loss(w)
+        regularization = sum(tf.nn.l2_loss(w) for w, _, _ in self.layers if w is not None)
         regularization *= config.lambda_
         prediction_slices = []
         self.loss = 0
@@ -108,6 +105,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
             else:
                 self.loss = tf.reduce_mean(tf.abs(y_real - y_pred))
             prediction_slices.append(y_pred)
+        self.loss += regularization
         predictions = tf.concat(prediction_slices, axis=1)
         self.layers.append((w, b, predictions))
 
