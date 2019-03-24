@@ -215,6 +215,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
     def update_tf_weights_to_np_weights(self, sess: tf.Session):
         self.weights = sess.run([w for w, b, p in self.layers if w is not None])
         self.biases = sess.run([b for w, b, p in self.layers if b is not None])
+        assert len(self.weights) == len(self.biases)
 
     def load_weights(self, file_name: str):
         super().load_weights(file_name)

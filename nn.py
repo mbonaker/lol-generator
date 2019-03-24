@@ -29,8 +29,12 @@ class NeuralNetwork:
         for i in range(0, count):
             layer_name = "layer_{i:d}".format(i=i)
             biases_name = "biases_{i:d}".format(i=i)
-            self.weights.append(content[layer_name])
-            self.biases.append(content[biases_name])
+            weights = content[layer_name]
+            biases = content[biases_name]
+            assert weights.shape[1] == biases.shape[0]
+            assert biases.shape[1] == 1
+            self.weights.append(weights)
+            self.biases.append(biases)
         assert len(self.weights) == len(self.biases)
 
     def save_weights(self, file_name: str) -> None:

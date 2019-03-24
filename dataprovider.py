@@ -326,6 +326,7 @@ class NumpyCorpusStructure:
         return self.get_portion_slice(PORTION_WIN)
 
     def pd2np(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
+        self.logger.log(logging.DEBUG, "Convert pandas dataframe to ndarray...")
         for i, np_col_spec in enumerate(self.columns):
             csv_col_spec = np_col_spec.csv_column_specification
             pd_col = dataframe[csv_col_spec.name]
