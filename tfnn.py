@@ -75,21 +75,15 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.layers = [(None, None, self.features)]
         for i, l in enumerate(config.hidden_layer_structure):
             self.logger.log(logging.DEBUG, "Add layer {i:d} with {l:d} nodes to the computation".format(i=i, l=l))
-            w = tf.Variable(
-                tf.random_normal((previous_layer_size, l), 0, 0.05, dtype=config.dtype, seed=config.seed),
-                name="weights_" + str(i))
-            b = tf.Variable(tf.random_normal((l, 1), 0, 0.05, dtype=config.dtype, seed=config.seed),
-                            name="bias_" + str(i))
+            w = tf.Variable(tf.random_normal((previous_layer_size, l), 0, 0.05, dtype=config.dtype, seed=config.seed), name="weights_" + str(i))
+            b = tf.Variable(tf.random_normal((l, 1), 0, 0.05, dtype=config.dtype, seed=config.seed), name="bias_" + str(i))
             sum_w = tf.matmul(w, x, True, b_is_sparse=x_is_sparse)
             x_is_sparse = False
             x = tf.nn.relu(tf.add(sum_w, b), "layer_" + str(i))
             self.layers.append((w, b, x))
             previous_layer_size = l
-        w = tf.Variable(
-            tf.random_normal((previous_layer_size, target_amount), 0, 0.05, dtype=config.dtype, seed=config.seed),
-            name="weights_end")
-        b = tf.Variable(tf.random_normal((target_amount, 1), 0, 0.05, dtype=config.dtype, seed=config.seed),
-                        name="bias_end")
+        w = tf.Variable(tf.random_normal((previous_layer_size, target_amount), 0, 0.05, dtype=config.dtype, seed=config.seed), name="weights_end")
+        b = tf.Variable(tf.random_normal((target_amount, 1), 0, 0.05, dtype=config.dtype, seed=config.seed), name="bias_end")
         logit = tf.transpose(tf.add(tf.matmul(w, x, True), b), name="logit")
 
         #

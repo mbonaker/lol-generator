@@ -4,7 +4,7 @@ from typing import TextIO
 
 import numpy as np
 
-import dataprovider
+import dataprovider as dp
 from config import ApplicationConfiguration
 
 PURPOSE_TRAIN = 1
@@ -13,7 +13,7 @@ PURPOSE_PREDICT = 4
 
 
 class NeuralNetwork:
-    def __init__(self, data: dataprovider.DataProvider, config: ApplicationConfiguration):
+    def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration):
         self.logger = logging.getLogger(__name__)
         self.config = config
         self.data = data
@@ -56,8 +56,8 @@ class NeuralNetwork:
             full_np_slice = self.data.np_structure.csv_column_spec_to_np_slice(csv_column)
             np_slice = slice(full_np_slice.start - self.data.known.shape[1], full_np_slice.stop - self.data.known.shape[1])
             y_pred = logit[:, np_slice]
-            if csv_column.handling == dataprovider.CsvColumnSpecification.HANDLING_ONEHOT or \
-               csv_column.handling == dataprovider.CsvColumnSpecification.HANDLING_BOOL:
+            if csv_column.handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or \
+               csv_column.handling == dp.CsvColumnSpecification.HANDLING_BOOL:
                 predictions[:, np_slice] = sigmoid(y_pred)
             else:
                 predictions[:, np_slice] = y_pred
