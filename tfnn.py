@@ -125,8 +125,11 @@ class TrainableNeuralNetwork(NeuralNetwork):
         for csv_column in unknown_csv_structure.columns:
             column_slice = unknown_data_structure.csv_column_spec_to_np_slice(csv_column)
             column_mae = tf.reduce_mean(tf.abs(error[:, column_slice]))
-            summary = tf.summary.scalar("test_error_{column_name:s}".format(column_name=csv_column.name), column_mae)
-            test_evaluation_summaries.append(summary)
+            error_summary = tf.summary.scalar("test_error_{column_name:s}".format(column_name=csv_column.name), column_mae)
+            test_evaluation_summaries.append(error_summary)
+            column_prediction = predictions[:, column_slice]
+            prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=csv_column.name), tf.reduce_mean(column_prediction, axis=1))
+            test_evaluation_summaries.append(prediction_summary)
         self.test_summaries = tf.summary.merge(test_evaluation_summaries)
 
 
