@@ -168,40 +168,35 @@ class TrainableNeuralNetwork(NeuralNetwork):
         return generate_ndarray
 
     def start_session(self, sess: tf.Session):
-        self.logger.log(logging.DEBUG, "Initialize the iterator")
+        self.logger.log(logging.DEBUG, "Initialize the iterators")
         self.train_handle = sess.run(self.train_iterator.string_handle())
         self.test_handle = sess.run(self.test_iterator.string_handle())
         sess.run(self.train_iterator.initializer)
         sess.run(self.test_iterator.initializer)
         sess.run(tf.global_variables_initializer())
 
+        self.logger.log(logging.DEBUG, "Start the file writer for tensorboard")
         self.tf_writer = tf.summary.FileWriter(self.config.tensorboard_path, sess.graph, flush_secs=10)
 
     def train_one_step(self, sess: tf.Session):
         self.reassign_tf_weights_if_necessary(sess)
-        self.logger.log(logging.DEBUG, "Start training...")
         time_before = perf_counter()
         sess.run(self.minimizer, feed_dict={self.iterator_handle: self.train_handle})
         self.running_duration += perf_counter() - time_before
-        self.logger.log(logging.DEBUG, "Training done.")
 
     def train_eval(self, sess: tf.Session):
         self.reassign_tf_weights_if_necessary(sess)
-        self.logger.log(logging.DEBUG, "Start training evaluation...")
         step, summaries = sess.run([self.global_step, self.train_summaries], feed_dict={self.iterator_handle: self.train_handle})
-        self.logger.log(logging.DEBUG, "Training evaluation done.")
         training_amount = step * self.config.batch_size
         self.tf_writer.add_summary(summaries, training_amount)
 
     def test_eval(self, sess: tf.Session) -> float:
         self.reassign_tf_weights_if_necessary(sess)
-        self.logger.log(logging.DEBUG, "Start test evaluation...")
         step, summaries, loss = sess.run([
             self.global_step,
             self.test_summaries,
             tf.reduce_mean(self.loss),
         ], feed_dict={self.iterator_handle: self.test_handle})
-        self.logger.log(logging.DEBUG, "Test evaluation done.")
         training_amount = step * self.config.batch_size
         self.tf_writer.add_summary(summaries, training_amount)
         return loss
@@ -233,14 +228,18 @@ class TrainableNeuralNetwork(NeuralNetwork):
         smallest_loss = float('inf')
         with tf.Session() as session:
             self.start_session(session)
+            self.logger.log(logging.DEBUG, "Start loop for training steps...")
             for i in range(0, self.config.training_amount // self.config.batch_size):
                 training_amount = i * self.config.batch_size
                 if training_amount % (1 << 16) == 0:
+                    self.logger.log(logging.DEBUG, "Evaluate the network on training data...")
                     self.train_eval(session)
                 if training_amount % (1 << 19) == 0:
+                    self.logger.log(logging.DEBUG, "Evaluate the network on test data...")
                     loss = self.test_eval(session)
                     if loss < smallest_loss:
                         smallest_loss = loss
+                        self.logger.log(logging.INFO, "New smallest loss: {loss:g}, save the weights...".format(loss=smallest_loss))
                         self.save_tf_weights(file_name, session)
-                        self.logger.log(logging.INFO, "New smallest loss: {loss:g}".format(loss=smallest_loss))
+                self.logger.log(logging.DEBUG, "Do one training step...")
                 self.train_one_step(session)
