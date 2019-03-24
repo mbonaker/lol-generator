@@ -270,11 +270,10 @@ class NumpyCorpusStructure:
         if not self.portion & portion:
             raise LookupError("The portion to take a slice from is not contained in this corpus.")
         if portion == PORTION_KNOWN:
-            index = 0
             for index, col in enumerate(self.columns):
                 if col.csv_column_specification.name not in self.known:
                     return slice(0, index)
-            return slice(0, index)
+            return slice(0, len(self.columns))
         elif portion == PORTION_UNKNOWN:
             if not self.portion & PORTION_KNOWN:
                 return slice(0, None)
