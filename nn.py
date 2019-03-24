@@ -24,6 +24,8 @@ class NeuralNetwork:
     def load_weights(self, file_name: str) -> None:
         content = np.load(file_name)
         count = int(content['count'])
+        self.weights = []
+        self.biases = []
         for i in range(0, count):
             layer_name = "layer_{i:d}".format(i=i)
             biases_name = "biases_{i:d}".format(i=i)
@@ -33,11 +35,15 @@ class NeuralNetwork:
 
     def save_weights(self, file_name: str) -> None:
         weights = dict(("layer_{i:d}".format(i=i), layer) for i, layer in enumerate(self.weights))
-        biases = dict(("biases_{i:d}".format(i=i), layer) for i, layer in enumerate(self.weights))
+        biases = dict(("biases_{i:d}".format(i=i), layer) for i, layer in enumerate(self.biases))
         assert len(weights) == len(biases)
         np.savez_compressed(file_name, count=len(self.weights), **weights, **biases)
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self) -> np.ndarray:
+        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+
+        x = self.data.get_ndarray(dp.PORTION_KNOWN)
         self.logger.log(logging.DEBUG, "Predict for known data of shape {shape!r}.".format(shape=x.shape))
 
         def relu(v: np.ndarray) -> np.ndarray:
@@ -48,17 +54,15 @@ class NeuralNetwork:
 
         x = x.T
         for layer, biases in zip(self.weights[:-1], self.biases[:-1]):
-            x = relu(layer.T @ x + np.expand_dims(biases, 1))
-        logit = (self.weights[-1] @ x + self.biases[-1]).T
+            x = relu(layer.T @ x + biases)
+        logit = (self.weights[-1].T @ x + self.biases[-1]).T
 
         predictions = np.ndarray(shape=logit.shape, dtype=self.config.dtype)
-        for csv_column in self.data.csv_structure.columns:
-            full_np_slice = self.data.np_structure.csv_column_spec_to_np_slice(csv_column)
-            np_slice = slice(full_np_slice.start - self.data.known.shape[1], full_np_slice.stop - self.data.known.shape[1])
-            y_pred = logit[:, np_slice]
-            if csv_column.handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or \
-               csv_column.handling == dp.CsvColumnSpecification.HANDLING_BOOL:
-                predictions[:, np_slice] = sigmoid(y_pred)
+        for data_slice, handling in unknown_data_structure.generate_handling_slices():
+            y_pred = logit[:, data_slice]
+            if handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or \
+               handling == dp.CsvColumnSpecification.HANDLING_BOOL:
+                predictions[:, data_slice] = sigmoid(y_pred)
             else:
-                predictions[:, np_slice] = y_pred
+                predictions[:, data_slice] = y_pred
         return predictions
