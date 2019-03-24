@@ -242,7 +242,9 @@ class TrainableNeuralNetwork(NeuralNetwork):
                     loss = self.test_eval(session)
                     if loss < smallest_loss:
                         smallest_loss = loss
-                        self.logger.log(logging.INFO, "New smallest loss: {loss:g}, save the weights...".format(loss=smallest_loss))
+                        self.logger.log(logging.INFO, "New smallest loss: {loss:g}! Save the weights...".format(loss=smallest_loss))
                         self.save_tf_weights(file_name, session)
+                    else:
+                        self.logger.log(logging.INFO, "Not smallest loss: {loss:g}.".format(loss=smallest_loss))
                 self.logger.log(logging.DEBUG, "Do one training step...")
                 self.train_one_step(session)
