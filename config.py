@@ -297,6 +297,7 @@ class ApplicationConfiguration:
             '--ic',
             type=IGNORED_COLUMNS.str_to_value,
             help="Columns to ignore",
+            default=IGNORED_COLUMNS.str_to_value(''),
         )
         self.arguments = argument_parser.parse_args(str_arguments)
         self.default_options = {
@@ -312,7 +313,7 @@ class ApplicationConfiguration:
             VALIDATION_DATA_AMOUNT: 1 << 14,
             STOP_CRITERIA: StopCriteria('seconds1800:stagnant'),  # 1800 seconds is half an hour
             IGNORED_COLUMNS: [],
-            CODE_VERSION: 2,
+            CODE_VERSION: 3,
         }
         self.option_dict = {}
 

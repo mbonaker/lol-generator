@@ -377,6 +377,12 @@ class NumpyCorpusStructure:
                 indices.append(index)
         return indices
 
+    def csv_column_name_to_np_slice(self, name: str) -> slice:
+        for col in self.columns:
+            if col.csv_column_specification.name == name:
+                return self.csv_column_spec_to_np_slice(col.csv_column_specification)
+        raise KeyError("Did not find column {!r}".format(name))
+
     def csv_column_spec_to_np_slice(self, csv_column: CsvColumnSpecification):
         start = next(i for i, np_col_spec in enumerate(self.columns) if np_col_spec.csv_column_specification is csv_column)
         if csv_column.handling == CsvColumnSpecification.HANDLING_ONEHOT:
@@ -384,6 +390,29 @@ class NumpyCorpusStructure:
         else:
             end = start + 1
         return slice(start, end)
+
+    def generate_continuous_handling_slices(self, ignored_columns: Iterable[str]) -> Iterable[slice]:
+        last_handling = None
+        last_start = 0
+        last_end = 0
+        for np_col_spec in self.columns:
+            csv_col_spec = np_col_spec.csv_column_specification
+            if csv_col_spec.name in ignored_columns or csv_col_spec.handling != CsvColumnSpecification.HANDLING_CONTINUOUS:
+                handling = CsvColumnSpecification.HANDLING_NONE
+            else:
+                handling = csv_col_spec.handling
+            if handling == last_handling:
+                last_end += 1
+            else:
+                if last_handling == CsvColumnSpecification.HANDLING_CONTINUOUS:
+                    yield (slice(last_start, last_end), last_handling)
+                last_start = last_end
+                last_end += 1
+                last_handling = handling
+            if last_handling is None:
+                last_handling = handling
+        if last_handling == CsvColumnSpecification.HANDLING_CONTINUOUS:
+            yield (slice(last_start, last_end), last_handling)
 
     def generate_handling_slices(self, ignored_columns: Iterable[str] = tuple()):
         current_handling = None
