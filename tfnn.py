@@ -98,17 +98,15 @@ class TrainableNeuralNetwork(NeuralNetwork):
             y_slice = y[:, data_slice]
             logit_slice = logit[:, data_slice]
             if handling == dp.CsvColumnSpecification.HANDLING_NONE:
-                y_hat_slice = tf.fill(dims=logit.shape, value=0.0)
-            elif handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or \
-                    handling == dp.CsvColumnSpecification.HANDLING_BOOL:
+                y_hat_slice = tf.zeros_like(logit_slice)
+            elif handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or handling == dp.CsvColumnSpecification.HANDLING_BOOL:
                 y_hat_slice = tf.nn.sigmoid(logit_slice)
                 losses.append(tf.reduce_mean(tf.losses.sigmoid_cross_entropy(y_slice, logit_slice)))
             else:
                 y_hat_slice = logit_slice
                 losses.append(tf.reduce_mean(tf.abs(y_slice - logit_slice)))
             prediction_slices.append(y_hat_slice)
-        self.loss = sum(losses) / len(losses)
-        self.loss += regularization
+        self.loss = sum(losses) / len(losses) + regularization
         predictions = tf.concat(prediction_slices, axis=1)
         self.layers.append((w, b, predictions))
 
@@ -198,7 +196,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         step, summaries, loss = sess.run([
             self.global_step,
             self.test_summaries,
-            tf.reduce_mean(self.loss),
+            self.loss,
         ], feed_dict={self.iterator_handle: self.test_handle})
         training_amount = step * self.config.batch_size
         self.tf_writer.add_summary(summaries, training_amount)
