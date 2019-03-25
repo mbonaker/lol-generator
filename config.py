@@ -385,9 +385,11 @@ class ApplicationConfiguration:
                 return option.str_to_value(value)
             else:
                 return value
+        if hasattr(self.arguments, option.key):
+            return getattr(self.arguments, option.key)
         if option in self.default_options:
             return self.get_default(option)
-        return getattr(self.arguments, option.key)
+        return None
 
     def get_default(self, option: ConfigurationOption):
         value = self.default_options[option]
