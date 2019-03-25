@@ -117,11 +117,12 @@ class TrainableNeuralNetwork(NeuralNetwork):
             logits = logit[:, spell1_slice] + logit[:, spell2_slice]
             ys = y[:, spell1_slice] + y[:, spell2_slice]
             losses.append(tf.cast(tf.losses.sigmoid_cross_entropy(ys, logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype))
-            hast = 'participants.{id:d}.highestAchievedSeasonTier'.format(id=pid)
-            hast_slice = unknown_data_structure.csv_column_name_to_np_slice(hast)
-            logits = logit[:, hast_slice]
-            ys = y[:, hast_slice]
-            losses.append(tf.cast(tf.losses.sigmoid_cross_entropy(ys, logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype))
+            for key_part in ("highestAchievedSeasonTier", "timeline.lane", "timeline.role"):
+                key = 'participants.{id:d}.{k:s}'.format(id=pid, k=key_part)
+                slice_ = unknown_data_structure.csv_column_name_to_np_slice(key)
+                logits = logit[:, slice_]
+                ys = y[:, slice_]
+                losses.append(tf.cast(tf.losses.sigmoid_cross_entropy(ys, logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype))
         for team_id in (0, 1):
             ban_slices = []
             for ban_id in range(0, 4):
