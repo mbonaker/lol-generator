@@ -355,13 +355,16 @@ class NumpyCorpusStructure:
                 true_value = csv_col_spec.mode
                 false_value = next(level for level in csv_col_spec.format_spec if level != true_value)
                 dataframe[csv_col_spec.name] = np.array([false_value, true_value])[level_indices]
-            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and csv_col_spec.format_spec is int or csv_col_spec.format_spec is float:
+            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and (csv_col_spec.format_spec is int or csv_col_spec.format_spec is float):
                 level_indices = (ndarray[:, column_slice] > 0.5).astype(np.int32)
                 mean = csv_col_spec.mean
                 md = csv_col_spec.md
                 true_value = mean + md
                 false_value = mean - md
                 dataframe[csv_col_spec.name] = np.array([false_value, true_value])[level_indices]
+            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and csv_col_spec.format_spec is bool:
+                level_indices = (ndarray[:, column_slice] > 0.5).astype(np.int32)
+                dataframe[csv_col_spec.name] = np.array([False, True])[level_indices]
             else:
                 mean = csv_col_spec.mean
                 sd = csv_col_spec.sd
