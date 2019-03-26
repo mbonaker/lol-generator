@@ -605,10 +605,12 @@ class CorpusProvider(DataProvider):
         thread_count = max(1, cpu_count - 1)
         threads = list()
         chunk_queue = queue.Queue(maxsize=thread_count)
+        self.logger.log(logging.INFO, "Create {:d} threads...".format(thread_count))
         for i in range(thread_count):  # 'cpu_count - 1' because the main cpu is busy filling the queue
             new_thread = threading.Thread(target=CorpusProvider.dataframe_to_ndarray_conversion_thread, args=(self, chunk_queue, ndarray, chunksize, i))
             new_thread.start()
             threads.append(new_thread)
+        self.logger.log(logging.INFO, "Begin reading Matches.csv...")
         for i, chunk in enumerate(pandas.read_csv(
             "{path}/Matches.csv".format(path=self.data_path),
             dtype=self.csv_structure.dtype,
