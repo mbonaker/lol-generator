@@ -143,7 +143,7 @@ class CsvCorpusStructure:
         else:
             self.unknown = None
             self.unknown_without_win = None
-        if not ~portion & PORTION_INTERESTING - PORTION_WIN:
+        if (portion & PORTION_INTERESTING - PORTION_WIN) == PORTION_INTERESTING - PORTION_WIN:
             self.interesting = self.read_column_list_file("{path}/columns/interesting".format(path=data_path))
             self.interesting_without_win = tuple(col for col in self.interesting if col not in ("teams.0.win", "teams.1.win"))
             portion_set.update(self.interesting_without_win)
