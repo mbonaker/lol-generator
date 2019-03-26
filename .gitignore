@@ -1,5 +1,7 @@
 tensorboard
 errors.log
+errors.log.*
 __pycache__
 .idea
 all.log
+all.log.*
