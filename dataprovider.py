@@ -374,7 +374,11 @@ class NumpyCorpusStructure:
             else:
                 mean = csv_col_spec.mean
                 sd = csv_col_spec.sd
-                dataframe[csv_col_spec.name] = ndarray[:, column_slice] * sd + mean
+                out = ndarray[:, column_slice] * sd + mean
+                if csv_col_spec.min_value > 0:
+                    out = np.maximum(out, 0)
+                dataframe[csv_col_spec.name] = out
+
 
     def column_indices_from_names(self, names: Iterable[str]) -> List[int]:
         indices = []
