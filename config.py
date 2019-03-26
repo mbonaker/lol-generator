@@ -407,6 +407,8 @@ class ApplicationConfiguration:
     def __str__(self) -> str:
         information_points = []
         for option in OPTIONS:
+            if option not in self.option_dict and not hasattr(self.arguments, option.key):
+                continue
             value = self.get_value(option)
             if value is None or option in self.default_options and self.get_default(option) == value:
                 continue
