@@ -1,5 +1,6 @@
 import logging
 import io
+from collections import OrderedDict
 from time import perf_counter
 from typing import Optional, TextIO
 
@@ -88,31 +89,76 @@ class TrainableNeuralNetwork(NeuralNetwork):
         logit = tf.transpose(tf.add(tf.matmul(w, x, True), b), name="logit")
 
         #
-        # Calculate metrics like error, predictions etc.
+        # Calculate the loss
         #
-        regularization = sum(tf.nn.l2_loss(w) for w, _, _ in self.layers if w is not None)
-        regularization *= config.lambda_
+        self.losses = OrderedDict()
+        self.labels = OrderedDict()
+        self.logger.log(logging.DEBUG, "Add loss calculation to the graph...")
+
+        def ignore_col(col: dp.CsvColumnSpecification) -> bool:
+            return col.name in self.config.ignored_columns
+
+        for data_slice in unknown_data_structure.generate_slices(lambda c: not ignore_col(c) and c.handling == dp.CsvColumnSpecification.HANDLING_CONTINUOUS):
+            ys = y[:, data_slice]
+            logits = logit[:, data_slice]
+            loss = tf.reduce_mean(tf.reduce_sum(tf.abs(ys - logits), axis=1))
+            self.losses['continuous_{!r}'.format(data_slice)] = loss
+        for csv_column in unknown_csv_structure.columns:
+            data_slice = unknown_data_structure.csv_column_spec_to_np_slice(csv_column)
+            ys = y[:, data_slice]
+            logits = logit[:, data_slice]
+            handling = csv_column.handling if csv_column.name not in config.ignored_columns else dp.CsvColumnSpecification.HANDLING_NONE
+            if handling == dp.CsvColumnSpecification.HANDLING_BOOL:
+                loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=ys, logits=logits))
+                self.losses['bool_{:s}'.format(csv_column.name)] = loss
+                self.labels['bool_{:s}'.format(csv_column.name)] = ys
+        # per participant one-hot encodings
+        for pid in range(0, 9):
+            for key_part in ("highestAchievedSeasonTier", "timeline.lane", "timeline.role"):
+                key = 'participants.{id:d}.{k:s}'.format(id=pid, k=key_part)
+                slice_ = unknown_data_structure.csv_column_name_to_np_slice(key)
+                logits = logit[:, slice_]
+                ys = y[:, slice_]
+                loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=ys, logits=logits))
+                self.losses['onehot_{:s}'.format(key)] = loss
+                self.labels['onehot_{:s}'.format(key)] = ys
+        for team_id in (0, 1):
+            ban_slices = []
+            for ban_id in range(0, 4):
+                ban_name = "teams.{tid:d}.bans.{bid:d}.championId".format(tid=team_id, bid=ban_id)
+                ban_slices.append(unknown_data_structure.csv_column_name_to_np_slice(ban_name))
+            logits = sum(logit[:, ban_slice] for ban_slice in ban_slices)
+            ys = sum(y[:, ban_slice] for ban_slice in ban_slices)
+            loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=ys, logits=logits))
+            self.losses["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = loss
+            self.labels["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = ys
+        regularization = sum(tf.nn.l2_loss(w) for w, _, _ in self.layers if w is not None) * config.lambda_
+        self.losses["regularization"] = regularization
+        self.loss = tf.math.add_n(list(self.losses.values()), "loss")
+
+        #
+        # Calculate the predictions as last layer
+        #
+        self.logger.log(logging.DEBUG, "Add prediction calculation to the graph...")
         prediction_slices = []
-        losses = []
         for data_slice, handling in unknown_data_structure.generate_handling_slices(self.config.ignored_columns):
-            y_slice = y[:, data_slice]
             logit_slice = logit[:, data_slice]
             if handling == dp.CsvColumnSpecification.HANDLING_NONE:
                 y_hat_slice = tf.zeros_like(logit_slice)
             elif handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or handling == dp.CsvColumnSpecification.HANDLING_BOOL:
                 y_hat_slice = tf.nn.sigmoid(logit_slice)
-                losses.append(tf.reduce_mean(tf.losses.sigmoid_cross_entropy(y_slice, logit_slice)))
-            else:
+            elif handling == dp.CsvColumnSpecification.HANDLING_CONTINUOUS:
                 y_hat_slice = logit_slice
-                losses.append(tf.reduce_mean(tf.abs(y_slice - logit_slice)))
+            else:
+                raise NotImplementedError()
             prediction_slices.append(y_hat_slice)
-        self.loss = sum(losses) / len(losses) + regularization
         predictions = tf.concat(prediction_slices, axis=1)
         self.layers.append((w, b, predictions))
 
         #
         # Create the evaluation of the DNN (loss/error and stuff)
         #
+        self.logger.log(logging.DEBUG, "Add summary calculation to the graph...")
         error = tf.subtract(predictions, y, "error")
         self.mae = tf.reduce_mean(tf.math.abs(error), axis=0, name="MAE")
         self.train_summaries = tf.summary.merge([
@@ -137,6 +183,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         #
         # Create the optimization of the DNN (gradient and stuff)
         #
+        self.logger.log(logging.DEBUG, "Add optimization calculation to the graph...")
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         # grads_and_vars is a list of tuples (gradient, variable)
         parameters = [w for w, _, _ in self.layers if w is not None] + [b for _, b, _ in self.layers if b is not None]
@@ -188,6 +235,14 @@ class TrainableNeuralNetwork(NeuralNetwork):
     def train_eval(self, sess: tf.Session):
         self.reassign_tf_weights_if_necessary(sess)
         step, summaries = sess.run([self.global_step, self.train_summaries], feed_dict={self.iterator_handle: self.train_handle})
+        losses = sess.run(list(self.losses.values()), feed_dict={self.iterator_handle: self.train_handle})
+        labels = sess.run(list(self.labels.values()), feed_dict={self.iterator_handle: self.train_handle})
+        for name, loss in zip(self.losses.keys(), losses):
+            if loss < 0:
+                self.logger.log(logging.WARNING, "Loss {:s} is {:g} (< 0)".format(name, loss))
+                if name in self.labels:
+                    current_labels = labels[list(self.labels.keys()).index(name)]
+                    self.logger.log(logging.INFO, "Labels of {:s} contain values other than 1 or 0: {!r}".format(name, np.any(np.logical_and(current_labels != 0, current_labels != 1))))
         training_amount = step * self.config.batch_size
         self.tf_writer.add_summary(summaries, training_amount)
 

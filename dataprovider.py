@@ -119,6 +119,9 @@ class CsvColumnSpecification:
         else:
             raise ValueError("format_spec {!r} unknown".format(self.format_spec))
 
+    def __str__(self):
+        return self.name
+
     def __hash__(self):
         return hash(self.name)
 
@@ -140,7 +143,7 @@ class CsvCorpusStructure:
         else:
             self.unknown = None
             self.unknown_without_win = None
-        if not ~portion & PORTION_INTERESTING - PORTION_WIN:
+        if (portion & PORTION_INTERESTING - PORTION_WIN) == PORTION_INTERESTING - PORTION_WIN:
             self.interesting = self.read_column_list_file("{path}/columns/interesting".format(path=data_path))
             self.interesting_without_win = tuple(col for col in self.interesting if col not in ("teams.0.win", "teams.1.win"))
             portion_set.update(self.interesting_without_win)
@@ -200,6 +203,9 @@ class NumpyColumnSpecification:
     @property
     def name(self):
         return self.csv_column_specification.name
+
+    def __str__(self):
+        return self.name
 
 
 class NumpyOneHotFieldColumnSpecification(NumpyColumnSpecification):
@@ -377,13 +383,31 @@ class NumpyCorpusStructure:
                 indices.append(index)
         return indices
 
-    def csv_column_spec_to_np_slice(self, csv_column: CsvColumnSpecification):
-        start = next(i for i, np_col_spec in enumerate(self.columns) if np_col_spec.csv_column_specification is csv_column)
-        if csv_column.handling == CsvColumnSpecification.HANDLING_ONEHOT:
-            end = start + len(csv_column.format_spec)
-        else:
-            end = start + 1
-        return slice(start, end)
+    def csv_column_name_to_np_slice(self, name: str) -> slice:
+        for col in self.columns:
+            if col.csv_column_specification.name == name:
+                return self.csv_column_spec_to_np_slice(col.csv_column_specification)
+        raise KeyError("Did not find column {!r}".format(name))
+
+    def csv_column_spec_to_np_slice(self, csv_column: CsvColumnSpecification) -> slice:
+        return next(self.generate_slices(lambda c: c == csv_column, 1))
+
+    def generate_slices(self, query: Callable[[CsvColumnSpecification], bool], max_slices: Optional[int] = None) -> Generator[slice, None, None]:
+        hit_start = None
+        slice_amount = 0
+        for i, np_col_spec in enumerate(self.columns):
+            csv_col_spec = np_col_spec.csv_column_specification
+            hit = query(csv_col_spec)
+            if hit and hit_start is None:
+                hit_start = i
+            elif not hit and hit_start is not None:
+                yield slice(hit_start, i)
+                hit_start = None
+                slice_amount += 1
+                if slice_amount == max_slices:
+                    return
+        if hit_start is not None:
+            yield slice(hit_start, None)
 
     def generate_handling_slices(self, ignored_columns: Iterable[str] = tuple()):
         current_handling = None
@@ -581,10 +605,12 @@ class CorpusProvider(DataProvider):
         thread_count = max(1, cpu_count - 1)
         threads = list()
         chunk_queue = queue.Queue(maxsize=thread_count)
+        self.logger.log(logging.INFO, "Create {:d} threads...".format(thread_count))
         for i in range(thread_count):  # 'cpu_count - 1' because the main cpu is busy filling the queue
             new_thread = threading.Thread(target=CorpusProvider.dataframe_to_ndarray_conversion_thread, args=(self, chunk_queue, ndarray, chunksize, i))
             new_thread.start()
             threads.append(new_thread)
+        self.logger.log(logging.INFO, "Begin reading Matches.csv...")
         for i, chunk in enumerate(pandas.read_csv(
             "{path}/Matches.csv".format(path=self.data_path),
             dtype=self.csv_structure.dtype,
