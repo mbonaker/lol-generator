@@ -305,7 +305,7 @@ class ApplicationConfiguration:
             DTYPE: 'float16',
             HIDDEN_LAYERS: [256],
             LEARNING_RATE: 0.001,
-            OPTIMIZER: OPTIMIZER.str_to_value('adam'),
+            OPTIMIZER: 'adam',
             ACTIVATION: 'leaky-relu',
             BATCH_SIZE: 2048,
             SEED: 0,
