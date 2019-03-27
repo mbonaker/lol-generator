@@ -260,7 +260,7 @@ class NumpyCorpusStructure:
                 use_column = True
             if self.portion & PORTION_WIN and csv_column.name in self.win:
                 use_column = True
-            if self.portion & (PORTION_UNKNOWN - PORTION_WIN) and csv_column.name in self.unknown_without_win:
+            if self.portion & (PORTION_UNKNOWN - PORTION_WIN) and self.unknown_without_win is not None and csv_column.name in self.unknown_without_win:
                 use_column = True
             if not use_column:
                 continue
