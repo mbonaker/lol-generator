@@ -48,10 +48,10 @@ class CsvColumnSpecification:
 
     @staticmethod
     def from_dict(source: Dict[str, str], known_data_optional: bool = False):
+        optional_column_names = CsvColumnSpecification.get_optional_column_names()
         name = source["Property Path"]
         if source["Format"].startswith("enum("):
             levels = source["Format"][5:-1].split("|")
-            optional_column_names = CsvColumnSpecification.get_optional_column_names()
             if known_data_optional and name in optional_column_names:
                 levels.append("")
             format_spec = np.array(levels)
@@ -80,15 +80,18 @@ class CsvColumnSpecification:
         max_value = converter(source["Max"]) if source["Max"] else None
         median = converter(source["Median"]) if source["Median"] else None
         mode = converter(source["Mode"]) if source["Mode"] else None
-        default_column = source["Default"]
-        if default_column == "Mean":
-            default = mean
-        elif default_column == "Standard Deviation":
-            default = sd
-        elif default_column == "Mean Deviation":
-            default = md
+        if name in optional_column_names:
+            default = ""
         else:
-            default = converter(source[default_column])
+            default_column = source["Default"]
+            if default_column == "Mean":
+                default = mean
+            elif default_column == "Standard Deviation":
+                default = sd
+            elif default_column == "Mean Deviation":
+                default = md
+            else:
+                default = converter(source[default_column])
         return CsvColumnSpecification(name, format_spec, handling, default, occurrence, mean, sd, md, min_value, max_value, median, mode)
 
     def __init__(self, name: str, format_spec, handling: int, default, occurrence: int, mean: Optional[float], sd: Optional[float], md: Optional[float], min_value, max_value, median, mode):
