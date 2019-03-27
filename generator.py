@@ -16,7 +16,8 @@ import config as cfg
 def get_trainable_output(batch_size: int):
     config = ApplicationConfiguration("")
     config.set(cfg.LABEL, 'adversarial')
-    corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=False)
+    config.set(cfg.CORPUS_FILE_NAME, 'Matches-orig')
+    corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), portion=dataprovider.PORTION_INTERESTING, known_data_is_optional=False, corpus_file_name=config.corpus_file_name)
     import tfnn
     nn = tfnn.TrainableNeuralNetwork(corpus, config)
     return nn.predictions, nn.variables, nn.loss
@@ -26,7 +27,7 @@ def get_trainable_output(batch_size: int):
 def handle_all_inputs(config: ApplicationConfiguration):
 
     if config.should_train:
-        corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True)
+        corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True, corpus_file_name=config.corpus_file_name)
         import tfnn
         nn = tfnn.TrainableNeuralNetwork(corpus, config)
         nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)))

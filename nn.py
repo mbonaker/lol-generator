@@ -44,7 +44,7 @@ class NeuralNetwork:
         np.savez_compressed(file_name, count=len(self.weights), **weights, **biases)
 
     def predict(self) -> np.ndarray:
-        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, None, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
         unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
 
         x = self.data.get_ndarray(dp.PORTION_KNOWN)

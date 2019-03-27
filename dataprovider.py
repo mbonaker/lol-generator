@@ -141,8 +141,9 @@ class CsvColumnSpecification:
 
 
 class CsvCorpusStructure:
-    def __init__(self, data_path: str, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
+    def __init__(self, data_path: str, corpus_file_name: str, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
         self.data_path = data_path
+        self.corpus_file_name = corpus_file_name
         self.logger = logging.getLogger(__name__)
         portion_set = set()
         if portion & PORTION_KNOWN:
@@ -192,7 +193,7 @@ class CsvCorpusStructure:
             return tuple(l if l[-1] != "\n" else l[:-1] for l in f)
 
     def count_matches(self):
-        with open("{path}/Matches.csv".format(path=self.data_path), "r") as f:
+        with open("{path}/{corpus}.csv".format(path=self.data_path, corpus=self.corpus_file_name), "r") as f:
             lines = 0
             buf_size = 1 << 20
             read_f = f.read  # loop optimization
@@ -463,12 +464,13 @@ class NumpyCorpusStructure:
 
 
 class DataProvider:
-    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False):
+    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False, corpus_file_name: Optional[str] = None):
         self.logger = logging.getLogger(__name__)
         self.data_path = data_path
-        self.csv_structure = CsvCorpusStructure(data_path, portion, known_data_is_optional)
+        self.csv_structure = CsvCorpusStructure(data_path, corpus_file_name, portion, known_data_is_optional)
         self.np_structure = NumpyCorpusStructure(self.csv_structure, dtype, portion, known_data_is_optional)
         self.data: np.ndarray = None
+        self.known_data_is_optional = known_data_is_optional
 
     @property
     def known(self) -> np.ndarray:
@@ -578,8 +580,9 @@ class KnownStdinProvider(DataProvider):
 
 
 class CorpusProvider(DataProvider):
-    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False):
-        super().__init__(data_path, dtype, portion, known_data_is_optional)
+    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False, corpus_file_name: str = "Matches"):
+        super().__init__(data_path, dtype, portion, known_data_is_optional, corpus_file_name=corpus_file_name)
+        self.corpus_file_name = corpus_file_name
         try:
             self.load()
         except BaseException as e:
@@ -601,7 +604,7 @@ class CorpusProvider(DataProvider):
 
     @property
     def npy_file_name(self) -> str:
-        return "{path}/Matches.npy".format(path=self.data_path)
+        return "{path}/{filename}.npy".format(path=self.data_path, filename=self.corpus_file_name)
 
     def save_to_npy_file(self) -> None:
         self.logger.log(logging.INFO, "Save {npy_path}".format(npy_path=self.npy_file_name))
@@ -642,7 +645,7 @@ class CorpusProvider(DataProvider):
             threads.append(new_thread)
         self.logger.log(logging.INFO, "Begin reading Matches.csv...")
         for i, chunk in enumerate(pandas.read_csv(
-            "{path}/Matches.csv".format(path=self.data_path),
+            "{path}/{filename}.csv".format(path=self.data_path, filename=self.corpus_file_name),
             dtype=self.csv_structure.dtype,
             header=0,
             true_values=("True",),

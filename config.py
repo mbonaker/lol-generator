@@ -255,6 +255,7 @@ VALIDATION_DATA_AMOUNT = ConfigurationOption('vd', 'Validation Data Amount', Tru
 LAMBDA = ConfigurationOption('lambda', 'Lambda', True, str, float)
 STOP_CRITERIA = ConfigurationOption('stop', 'Stop Criteria', True, str, StopCriteria)
 CODE_VERSION = ConfigurationOption('v', 'Code Version', True, str, int)
+CORPUS_FILE_NAME = ConfigurationOption('corpus', 'Corpus File Name', False, str, str)
 
 OPTIONS = (
     LEARNING_RATE,
@@ -271,6 +272,7 @@ OPTIONS = (
     LAMBDA,
     STOP_CRITERIA,
     CODE_VERSION,
+    CORPUS_FILE_NAME,
 )
 
 
@@ -299,6 +301,12 @@ class ApplicationConfiguration:
             help="Columns to ignore",
             default=IGNORED_COLUMNS.str_to_value(''),
         )
+        argument_parser.add_argument(
+            '--corpus',
+            type=str,
+            help="Name of the corpus file inside the data directory",
+            default='Matches',
+        )
         self.arguments = argument_parser.parse_args(str_arguments)
         self.default_options = {
             LAMBDA: 0,
@@ -314,8 +322,13 @@ class ApplicationConfiguration:
             STOP_CRITERIA: StopCriteria('seconds1800:stagnant'),  # 1800 seconds is half an hour
             IGNORED_COLUMNS: [],
             CODE_VERSION: 7,
+            CORPUS_FILE_NAME: 'Matches',
         }
         self.option_dict = {}
+
+    @property
+    def corpus_file_name(self) -> str:
+        return self.get_value(CORPUS_FILE_NAME)
 
     @property
     def should_read_stdin(self) -> bool:

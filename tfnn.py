@@ -22,8 +22,8 @@ class TrainableNeuralNetwork(NeuralNetwork):
     def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration):
         super().__init__(data, config)
 
-        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
-        unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
+        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, None, dp.PORTION_UNKNOWN - dp.PORTION_WIN, data.known_data_is_optional)
+        unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, data.known_data_is_optional)
 
         self.random_state = np.random.RandomState(config.seed)
         #
