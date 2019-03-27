@@ -14,14 +14,14 @@ from config import ApplicationConfiguration
 def handle_all_inputs(config: ApplicationConfiguration):
 
     if config.should_train:
-        corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16))
+        corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True)
         import tfnn
         nn = tfnn.TrainableNeuralNetwork(corpus, config)
         nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)))
 
     if config.should_read_stdin:
         in_data = dataprovider.KnownStdinProvider("../data", np.dtype(np.float16))
-        out_data = dataprovider.DataProvider("../data", np.dtype(np.float16), dataprovider.PORTION_INTERESTING - dataprovider.PORTION_WIN)
+        out_data = dataprovider.DataProvider("../data", np.dtype(np.float16), dataprovider.PORTION_INTERESTING - dataprovider.PORTION_WIN, True)
         out_data.create_nan_data(in_data.known.shape[0])
         nn = NeuralNetwork(in_data, config)
         out_data.known = in_data.known

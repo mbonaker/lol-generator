@@ -22,9 +22,10 @@ class TrainableNeuralNetwork(NeuralNetwork):
     def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration):
         super().__init__(data, config)
 
-        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
-        unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
+        unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
 
+        self.random_state = np.random.RandomState(config.seed)
         #
         # Create the dataset and iterator
         #
@@ -204,6 +205,12 @@ class TrainableNeuralNetwork(NeuralNetwork):
             for batch in np.split(ndarray, np.arange(0, ndarray.shape[0], self.config.batch_size), axis=0):
                 x = batch[:, self.data.np_structure.known_slice]
                 y = batch[:, self.data.np_structure.unknown_without_win_slice]
+                # take some optional information from x out (simulate incomplete user input)
+                if isinstance(x, np.memmap) or not x.flags.writeable:
+                    x_new = np.ndarray(x.shape, x.dtype)
+                    x_new[:, :] = x
+                    x = x_new
+                self.data.np_structure.randomly_unspecify_optional_columns(x, self.random_state, 0.1)
                 yield (x, y)
         return generate_ndarray_batches
 
@@ -212,6 +219,12 @@ class TrainableNeuralNetwork(NeuralNetwork):
             ndarray = self.data.get_ndarray()[-self.config.test_data_amount - self.config.validation_data_amount:-self.config.test_data_amount, :]
             x = ndarray[:, self.data.np_structure.known_slice]
             y = ndarray[:, self.data.np_structure.unknown_without_win_slice]
+            # take some optional information from x out (simulate incomplete user input)
+            if isinstance(x, np.memmap) or not x.flags.writeable:
+                x_new = np.ndarray(x.shape, x.dtype)
+                x_new[:, :] = x
+                x = x_new
+            self.data.np_structure.randomly_unspecify_optional_columns(x, self.random_state, 0.1)
             yield (x, y)
         return generate_ndarray
 

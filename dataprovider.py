@@ -40,10 +40,21 @@ class CsvColumnSpecification:
     OCCURRENCE_PERTEAM = 2
 
     @staticmethod
-    def from_dict(source: Dict[str, str]):
+    def get_optional_column_names():
+        for participant_id in range(0, 9):
+            yield "participants.{:d}.championId".format(participant_id)
+            for spell_id in (1, 2):
+                yield "participants.{:d}.spell{:d}Id".format(participant_id, spell_id)
+
+    @staticmethod
+    def from_dict(source: Dict[str, str], known_data_optional: bool = False):
         name = source["Property Path"]
         if source["Format"].startswith("enum("):
-            format_spec = np.array(source["Format"][5:-1].split("|"))
+            levels = source["Format"][5:-1].split("|")
+            optional_column_names = CsvColumnSpecification.get_optional_column_names()
+            if known_data_optional and name in optional_column_names:
+                levels.append("")
+            format_spec = np.array(levels)
             converter = str
         else:
             format_spec = {
@@ -127,7 +138,7 @@ class CsvColumnSpecification:
 
 
 class CsvCorpusStructure:
-    def __init__(self, data_path: str, portion: int = PORTION_INTERESTING):
+    def __init__(self, data_path: str, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
         self.data_path = data_path
         self.logger = logging.getLogger(__name__)
         portion_set = set()
@@ -160,7 +171,7 @@ class CsvCorpusStructure:
             csv_data = csv.DictReader(f)
             for line in csv_data:
                 if line['Property Path'] in portion_set:
-                    self.columns.append(CsvColumnSpecification.from_dict(line))
+                    self.columns.append(CsvColumnSpecification.from_dict(line, known_data_optional))
 
     @staticmethod
     def read_names_csv(full_path: str) -> Dict[int, str]:
@@ -220,7 +231,7 @@ class NumpyOneHotFieldColumnSpecification(NumpyColumnSpecification):
 
 class NumpyCorpusStructure:
 
-    def __init__(self, csv_structure: CsvCorpusStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING):
+    def __init__(self, csv_structure: CsvCorpusStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
         # logging
         self.logger = logging.getLogger(__name__)
         logger = logging.getLogger(__name__)
@@ -435,13 +446,25 @@ class NumpyCorpusStructure:
         if current_handling is not None:
             yield (slice(current_start, current_end), current_handling)
 
+    def randomly_unspecify_optional_columns(self, ndarray: np.ndarray, random_state: np.random.RandomState, p: float = 0.1) -> None:
+        for column_name in CsvColumnSpecification.get_optional_column_names():
+            column_slice = self.csv_column_name_to_np_slice(column_name)
+            self._randomly_unspecify_column(ndarray, column_slice, random_state, p)
+
+    def _randomly_unspecify_column(self, ndarray: np.ndarray, column_slice: slice, random_state: np.random.RandomState, p: float = 0.1) -> None:
+        column_contents = slice(column_slice.start, column_slice.stop - 1)
+        column_empty = column_slice.stop
+        match_ids = random_state.choice(ndarray.shape[0], int(ndarray.shape[0] * p))
+        ndarray[match_ids, column_contents] = 0
+        ndarray[match_ids, column_empty] = 1
+
 
 class DataProvider:
-    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING):
+    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False):
         self.logger = logging.getLogger(__name__)
         self.data_path = data_path
-        self.csv_structure = CsvCorpusStructure(data_path, portion)
-        self.np_structure = NumpyCorpusStructure(self.csv_structure, dtype, portion)
+        self.csv_structure = CsvCorpusStructure(data_path, portion, known_data_is_optional)
+        self.np_structure = NumpyCorpusStructure(self.csv_structure, dtype, portion, known_data_is_optional)
         self.data: np.ndarray = None
 
     @property
@@ -524,8 +547,8 @@ class DataProvider:
 
 
 class KnownStdinProvider(DataProvider):
-    def __init__(self, data_path: str, dtype: np.dtype):
-        super().__init__(data_path, dtype, PORTION_KNOWN)
+    def __init__(self, data_path: str, dtype: np.dtype, known_data_is_optional: bool = False):
+        super().__init__(data_path, dtype, PORTION_KNOWN, known_data_is_optional)
         try:
             self.load()
         except BaseException as e:
@@ -552,8 +575,8 @@ class KnownStdinProvider(DataProvider):
 
 
 class CorpusProvider(DataProvider):
-    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING):
-        super().__init__(data_path, dtype, portion)
+    def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False):
+        super().__init__(data_path, dtype, portion, known_data_is_optional)
         try:
             self.load()
         except BaseException as e:
