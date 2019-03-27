@@ -20,7 +20,7 @@ def handle_all_inputs(config: ApplicationConfiguration):
         nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)))
 
     if config.should_read_stdin:
-        in_data = dataprovider.KnownStdinProvider("../data", np.dtype(np.float16))
+        in_data = dataprovider.KnownStdinProvider("../data", np.dtype(np.float16), True)
         out_data = dataprovider.DataProvider("../data", np.dtype(np.float16), dataprovider.PORTION_INTERESTING - dataprovider.PORTION_WIN, True)
         out_data.create_nan_data(in_data.known.shape[0])
         nn = NeuralNetwork(in_data, config)
