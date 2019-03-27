@@ -21,6 +21,7 @@ def get_trainable_output(batch_size: int):
     corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), portion=dataprovider.PORTION_INTERESTING, known_data_is_optional=False, corpus_file_name=config.corpus_file_name)
     import tfnn
     nn = tfnn.TrainableNeuralNetwork(corpus, config, promise_batch_size=True)
+    nn.load_weights('../data/generator_state_label=adversarial.npz')
     return nn
 
 
