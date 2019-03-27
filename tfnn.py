@@ -199,10 +199,11 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.tf_writer: Optional[tf.summary.FileWriter] = None
         self.running_duration = 0
         self.need_tf_weight_reassignment = False
+        self.full_output = tf.concat((self.features, self.predictions), axis=1)
 
     @property
     def predictions(self):
-        w, b, predictions = self.layers[-1][2]
+        w, b, predictions = self.layers[-1]
         return predictions
 
     @property
@@ -219,12 +220,13 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 keep = keep[:, 0]
                 x: np.ndarray = batch[keep, self.data.np_structure.known_slice]
                 y: np.ndarray  = batch[keep, self.data.np_structure.unknown_without_win_slice]
-                # take some optional information from x out (simulate incomplete user input)
-                if isinstance(x, np.memmap) or not x.flags.writeable:
-                    x_new = np.ndarray(x.shape, x.dtype)
-                    x_new[:, :] = x
-                    x = x_new
-                self.data.np_structure.randomly_unspecify_optional_columns(x, self.random_state, 0.1)
+                if self.data.known_data_is_optional:
+                    # take some optional information from x out (simulate incomplete user input)
+                    if isinstance(x, np.memmap) or not x.flags.writeable:
+                        x_new = np.ndarray(x.shape, x.dtype)
+                        x_new[:, :] = x
+                        x = x_new
+                    self.data.np_structure.randomly_unspecify_optional_columns(x, self.random_state, 0.1)
                 yield (x, y)
         return generate_ndarray_batches
 
@@ -237,12 +239,13 @@ class TrainableNeuralNetwork(NeuralNetwork):
             keep = keep[:, 0]
             x = ndarray[keep, self.data.np_structure.known_slice]
             y = ndarray[keep, self.data.np_structure.unknown_without_win_slice]
-            # take some optional information from x out (simulate incomplete user input)
-            if isinstance(x, np.memmap) or not x.flags.writeable:
-                x_new = np.ndarray(x.shape, x.dtype)
-                x_new[:, :] = x
-                x = x_new
-            self.data.np_structure.randomly_unspecify_optional_columns(x, self.random_state, 0.1)
+            if self.data.known_data_is_optional:
+                # take some optional information from x out (simulate incomplete user input)
+                if isinstance(x, np.memmap) or not x.flags.writeable:
+                    x_new = np.ndarray(x.shape, x.dtype)
+                    x_new[:, :] = x
+                    x = x_new
+                self.data.np_structure.randomly_unspecify_optional_columns(x, self.random_state, 0.1)
             yield (x, y)
         return generate_ndarray
 
