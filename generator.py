@@ -9,6 +9,18 @@ import yaml
 import dataprovider
 from nn import NeuralNetwork
 from config import ApplicationConfiguration
+import config as cfg
+
+
+# called as: gen_output, gen_vars, gen_loss = generator.get_trainable_output(batch_size)
+def get_trainable_output(batch_size: int):
+    config = ApplicationConfiguration("")
+    config.set(cfg.LABEL, 'adversarial')
+    corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=False)
+    import tfnn
+    nn = tfnn.TrainableNeuralNetwork(corpus, config)
+    return nn.predictions, nn.variables, nn.loss
+
 
 
 def handle_all_inputs(config: ApplicationConfiguration):

@@ -187,7 +187,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.logger.log(logging.DEBUG, "Add optimization calculation to the graph...")
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         # grads_and_vars is a list of tuples (gradient, variable)
-        parameters = [w for w, _, _ in self.layers if w is not None] + [b for _, b, _ in self.layers if b is not None]
+        parameters = self.variables
         grads_and_vars = config.optimizer(config.learning_rate).compute_gradients(self.loss, var_list=parameters)
         capped_grads_and_vars = [(tf.clip_by_value(gv[0], -5., 5.), gv[1]) for gv in grads_and_vars]
         # apply the capped gradients.
@@ -198,6 +198,15 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.tf_writer: Optional[tf.summary.FileWriter] = None
         self.running_duration = 0
         self.need_tf_weight_reassignment = False
+
+    @property
+    def predictions(self):
+        w, b, predictions = self.layers[-1][2]
+        return predictions
+
+    @property
+    def variables(self):
+        return [w for w, _, _ in self.layers if w is not None] + [b for _, b, _ in self.layers if b is not None]
 
     def make_train_ndarray_batch_generator(self):
         def generate_ndarray_batches():
