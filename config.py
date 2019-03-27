@@ -313,7 +313,7 @@ class ApplicationConfiguration:
             VALIDATION_DATA_AMOUNT: 1 << 14,
             STOP_CRITERIA: StopCriteria('seconds1800:stagnant'),  # 1800 seconds is half an hour
             IGNORED_COLUMNS: [],
-            CODE_VERSION: 5,
+            CODE_VERSION: 7,
         }
         self.option_dict = {}
 

@@ -49,8 +49,8 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.logger.log(logging.DEBUG, "Batch train dataset")
         train_data = train_data.batch(self.config.batch_size, drop_remainder=False)
         test_data_shape = (
-            (config.test_data_amount, data.known.shape[1]),
-            (config.test_data_amount, data.unknown_without_win.shape[1]),
+            (None, data.known.shape[1]),
+            (None, data.unknown_without_win.shape[1]),
         )
         self.logger.log(logging.DEBUG, "Create test dataset with shape {!r}".format(test_data_shape))
         test_data = tf.data.Dataset.from_generator(
@@ -202,9 +202,13 @@ class TrainableNeuralNetwork(NeuralNetwork):
     def make_train_ndarray_batch_generator(self):
         def generate_ndarray_batches():
             ndarray = self.data.get_ndarray()[0:-self.config.test_data_amount - self.config.validation_data_amount, :]
-            for batch in np.split(ndarray, np.arange(0, ndarray.shape[0], self.config.batch_size), axis=0):
-                x = batch[:, self.data.np_structure.known_slice]
-                y = batch[:, self.data.np_structure.unknown_without_win_slice]
+            duration = self.data.np_structure.csv_column_name_to_np_slice("gameDuration")
+            for batch in np.split(ndarray, np.arange(self.config.batch_size, ndarray.shape[0], self.config.batch_size), axis=0):
+                # filter out 'remakes' (games that have been dissolved early due to leaving participants)
+                keep = batch[:, duration] > (15 * 60 - 1762.503) / 493.163
+                keep = keep[:, 0]
+                x: np.ndarray = batch[keep, self.data.np_structure.known_slice]
+                y: np.ndarray  = batch[keep, self.data.np_structure.unknown_without_win_slice]
                 # take some optional information from x out (simulate incomplete user input)
                 if isinstance(x, np.memmap) or not x.flags.writeable:
                     x_new = np.ndarray(x.shape, x.dtype)
@@ -217,8 +221,12 @@ class TrainableNeuralNetwork(NeuralNetwork):
     def make_test_ndarray_generator(self):
         def generate_ndarray():
             ndarray = self.data.get_ndarray()[-self.config.test_data_amount - self.config.validation_data_amount:-self.config.test_data_amount, :]
-            x = ndarray[:, self.data.np_structure.known_slice]
-            y = ndarray[:, self.data.np_structure.unknown_without_win_slice]
+            # filter out 'remakes' (games that have been dissolved early due to leaving participants)
+            duration = self.data.np_structure.csv_column_name_to_np_slice("gameDuration")
+            keep = ndarray[:, duration] > (15 * 60 - 1762.503) / 493.163
+            keep = keep[:, 0]
+            x = ndarray[keep, self.data.np_structure.known_slice]
+            y = ndarray[keep, self.data.np_structure.unknown_without_win_slice]
             # take some optional information from x out (simulate incomplete user input)
             if isinstance(x, np.memmap) or not x.flags.writeable:
                 x_new = np.ndarray(x.shape, x.dtype)
