@@ -19,7 +19,7 @@ def get_trainable_output(batch_size: int):
     config.set(cfg.CORPUS_FILE_NAME, 'Matches-orig')
     corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), portion=dataprovider.PORTION_INTERESTING, known_data_is_optional=False, corpus_file_name=config.corpus_file_name)
     import tfnn
-    nn = tfnn.TrainableNeuralNetwork(corpus, config)
+    nn = tfnn.TrainableNeuralNetwork(corpus, config, promise_batch_size=True)
     return nn.predictions, nn.variables, nn.loss
 
 

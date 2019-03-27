@@ -19,13 +19,14 @@ PURPOSE_PREDICT = 4
 
 class TrainableNeuralNetwork(NeuralNetwork):
 
-    def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration):
+    def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration, promise_batch_size: bool = False):
         super().__init__(data, config)
 
         unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, None, dp.PORTION_UNKNOWN - dp.PORTION_WIN, data.known_data_is_optional)
         unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, data.known_data_is_optional)
 
         self.random_state = np.random.RandomState(config.seed)
+        self.promise_batch_size = promise_batch_size
         #
         # Create the dataset and iterator
         #
@@ -47,7 +48,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.logger.log(logging.DEBUG, "Shuffle train dataset")
         train_data = train_data.shuffle(self.config.batch_size)
         self.logger.log(logging.DEBUG, "Batch train dataset")
-        train_data = train_data.batch(self.config.batch_size, drop_remainder=False)
+        train_data = train_data.batch(self.config.batch_size, drop_remainder=promise_batch_size)
         test_data_shape = (
             (None, data.known.shape[1]),
             (None, data.unknown_without_win.shape[1]),
