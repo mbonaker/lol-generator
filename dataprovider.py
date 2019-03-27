@@ -391,7 +391,10 @@ class NumpyCorpusStructure:
                 out = ndarray[:, column_slice] * sd + mean
                 if csv_col_spec.min_value >= 0:
                     out = np.maximum(out, 0)
-                out = np.minimum(out, np.finfo(np.float16).max)
+                if csv_col_spec.format_spec is float:
+                    out = np.minimum(out, np.finfo(csv_col_spec.dtype).max)
+                elif csv_col_spec.format_spec is int:
+                    out = np.minimum(out, np.iinfo(csv_col_spec.dtype).max)
                 dataframe[csv_col_spec.name] = out
 
 
