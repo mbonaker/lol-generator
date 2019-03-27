@@ -391,6 +391,7 @@ class NumpyCorpusStructure:
                 out = ndarray[:, column_slice] * sd + mean
                 if csv_col_spec.min_value >= 0:
                     out = np.maximum(out, 0)
+                out = np.minimum(out, np.finfo(np.float16).max)
                 dataframe[csv_col_spec.name] = out
 
 
