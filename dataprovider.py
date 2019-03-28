@@ -367,6 +367,7 @@ class NumpyCorpusStructure:
         csv_col_specs = set(np_col_spec.csv_column_specification for np_col_spec in self.columns)
         for csv_col_spec in csv_col_specs:
             column_slice = self.csv_column_spec_to_np_slice(csv_col_spec)
+            assert column_slice.stop is None or column_slice.stop < ndarray.shape[0]
             if csv_col_spec.handling == CsvColumnSpecification.HANDLING_ONEHOT:
                 level_indices = np.argmax(ndarray[:, column_slice], axis=1)
                 dataframe[csv_col_spec.name] = csv_col_spec.format_spec[level_indices]
@@ -531,7 +532,7 @@ class DataProvider:
     def get_as_dataframe(self) -> pandas.DataFrame:
         self.logger.log(logging.DEBUG, "Calculating the dataframe for numpy data (np shape: {shape!r})...".format(shape=self.data.shape))
         dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, self.data.shape[0]), columns=tuple(col.name for col in self.csv_structure.columns))
-        self.np_structure.np2pd(dataframe, self.data)
+        self.np_structure.np2pd(dataframe, self.get_ndarray(self.np_structure.portion))
         for col_name, dtype in self.csv_structure.dtype.items():
             try:
                 dataframe[col_name] = dataframe[col_name].astype(dtype)
