@@ -192,6 +192,7 @@ class TimingCriterion(StopCriterion):
             return False
         if self.start + self.max <= time.perf_counter():
             self.logger.log(logging.INFO, "Signaled stopping due to timing")
+            return True
         else:
             return False
 
@@ -203,8 +204,11 @@ class StopCriteria(StopCriterion):
         for keyword in keywords.split(":"):
             if keyword.startswith('samples'):
                 self.criteria.append(MaxTrainingCriterion(suffixed_si_to_number(keyword[7:])))
-            elif keyword == 'stagnant':
-                self.criteria.append(StagnationCriterion(30, [0.75, 0.8]))
+            elif keyword.startswith('stagnant'):
+                args = keyword[8:].split(',')
+                min_log = 30 if len(args) == 0 or args[0] == '' else int(args[0])
+                checkpoints = [0.75, 0.8] if len(args) < 2 else [float(arg) for arg in args[1:]]
+                self.criteria.append(StagnationCriterion(min_log, checkpoints))
             elif keyword.startswith('seconds'):
                 self.criteria.append(TimingCriterion(suffixed_si_to_number(keyword[7:])))
             else:
@@ -227,12 +231,10 @@ class StopCriteria(StopCriterion):
             if isinstance(criterion, MaxTrainingCriterion):
                 keywords.append("samples{:d}".format(criterion.max))
             elif isinstance(criterion, StagnationCriterion):
-                if criterion.min_log == 30 and criterion.checkpoints == [0.75, 0.8]:
-                    keywords.append("stagnant")
-                else:
-                    raise NotImplementedError()
+                c = ",".join("{:g}".format(checkpoint) for checkpoint in criterion.checkpoints)
+                keywords.append("stagnant{min:d},{checkpoints:s}".format(min=criterion.min_log, checkpoints=c))
             elif isinstance(criterion, TimingCriterion):
-                keywords.append("seconds{:f}".format(criterion.max))
+                keywords.append("seconds{:g}".format(criterion.max))
             else:
                 raise NotImplementedError()
         return ":".join(keywords)
@@ -298,6 +300,11 @@ class ApplicationConfiguration:
             type=IGNORED_COLUMNS.str_to_value,
             help="Columns to ignore",
             default=IGNORED_COLUMNS.str_to_value(''),
+        )
+        argument_parser.add_argument(
+            '--stop',
+            type=STOP_CRITERIA.str_to_value,
+            help=STOP_CRITERIA.name,
         )
         self.arguments = argument_parser.parse_args(str_arguments)
         self.default_options = {
@@ -391,7 +398,7 @@ class ApplicationConfiguration:
                 return option.str_to_value(value)
             else:
                 return value
-        if hasattr(self.arguments, option.key):
+        if hasattr(self.arguments, option.key) and getattr(self.arguments, option.key) is not None:
             return getattr(self.arguments, option.key)
         if option in self.default_options:
             return self.get_default(option)
