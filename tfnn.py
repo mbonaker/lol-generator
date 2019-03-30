@@ -307,21 +307,27 @@ class TrainableNeuralNetwork(NeuralNetwork):
         with tf.Session() as session:
             self.start_session(session)
             trained_batches = 0
+            samples_since_test_evaluation = 0
+            samples_since_train_evaluation = 0
             self.logger.log(logging.DEBUG, "Start training loop")
             while True:
-                training_amount = trained_batches * self.config.batch_size
-                if training_amount % (1 << 16) == 0:
+                samples = trained_batches * self.config.batch_size
+                samples_since_test_evaluation += self.config.batch_size
+                samples_since_train_evaluation += self.config.batch_size
+                if samples == 0 or samples_since_train_evaluation >= self.config.samples_per_train_evaluation:
                     self.logger.log(logging.DEBUG, "Evaluate the network on training data...")
                     self.train_eval(session)
-                if training_amount % (1 << 19) == 0:
+                    samples_since_train_evaluation = 0
+                if samples == 0 or samples_since_test_evaluation >= self.config.samples_per_test_evaluation:
                     self.logger.log(logging.DEBUG, "Evaluate the network on test data...")
                     loss = self.test_eval(session)
+                    samples_since_test_evaluation = 0
                     if loss < smallest_loss:
                         smallest_loss = loss
-                        self.logger.log(logging.INFO, "New smallest loss: {loss:g}! Save the weights...".format(loss=smallest_loss))
+                        self.logger.log(logging.INFO, "New smallest loss after {samples:g} samples: {loss:g}! Save the weights...".format(loss=smallest_loss, samples=samples))
                         self.save_tf_weights(file_name, session)
                     else:
-                        self.logger.log(logging.INFO, "Not smallest loss: {loss:g}.".format(loss=smallest_loss))
+                        self.logger.log(logging.INFO, "Not smallest loss after {samples:g} samples: {loss:g}.".format(loss=loss, samples=samples))
                     self.config.stop_criterion.update(TrainingStatus(self.config, trained_batches, loss))
                     if self.config.stop_criterion.should_stop():
                         self.logger.log(logging.INFO, "Stop training loop")

@@ -254,8 +254,10 @@ HIDDEN_LAYERS = ConfigurationOption('hl', 'Hidden Layer Structure', True, lambda
 ACTIVATION = ConfigurationOption('af', 'Activation Function', True, activation_function_to_str, str_to_activation_function)
 TEST_DATA_AMOUNT = ConfigurationOption('td', 'Test Data Amount', True, str, suffixed_si_to_number)
 VALIDATION_DATA_AMOUNT = ConfigurationOption('vd', 'Validation Data Amount', True, str, suffixed_si_to_number)
-LAMBDA = ConfigurationOption('lambda', 'Lambda', True, str, float)
+LAMBDA = ConfigurationOption('lambda', 'Lambda for L2-Regularization', True, str, float)
 STOP_CRITERIA = ConfigurationOption('stop', 'Stop Criteria', True, str, StopCriteria)
+SAMPLES_PER_TEST_EVALUATION = ConfigurationOption('evtest', 'Samples per Test Evaluation', True, str, suffixed_si_to_number)
+SAMPLES_PER_TRAIN_EVALUATION = ConfigurationOption('evtrain', 'Samples per Train Evaluation', True, str, suffixed_si_to_number)
 CODE_VERSION = ConfigurationOption('v', 'Code Version', True, str, int)
 
 OPTIONS = (
@@ -272,6 +274,8 @@ OPTIONS = (
     VALIDATION_DATA_AMOUNT,
     LAMBDA,
     STOP_CRITERIA,
+    SAMPLES_PER_TEST_EVALUATION,
+    SAMPLES_PER_TRAIN_EVALUATION,
     CODE_VERSION,
 )
 
@@ -299,12 +303,36 @@ class ApplicationConfiguration:
             '--ic',
             type=IGNORED_COLUMNS.str_to_value,
             help="Columns to ignore",
-            default=IGNORED_COLUMNS.str_to_value(''),
+        )
+        argument_parser.add_argument(
+            '--hl',
+            type=HIDDEN_LAYERS.str_to_value,
+            help=HIDDEN_LAYERS.name,
         )
         argument_parser.add_argument(
             '--stop',
             type=STOP_CRITERIA.str_to_value,
             help=STOP_CRITERIA.name,
+        )
+        argument_parser.add_argument(
+            '--bs',
+            type=BATCH_SIZE.str_to_value,
+            help=BATCH_SIZE.name,
+        )
+        argument_parser.add_argument(
+            '--evtest',
+            type=SAMPLES_PER_TEST_EVALUATION.str_to_value,
+            help=SAMPLES_PER_TEST_EVALUATION.name,
+        )
+        argument_parser.add_argument(
+            '--evtrain',
+            type=SAMPLES_PER_TRAIN_EVALUATION.str_to_value,
+            help=SAMPLES_PER_TRAIN_EVALUATION.name,
+        )
+        argument_parser.add_argument(
+            '-λ', '--lambda',
+            type=LAMBDA.str_to_value,
+            help=LAMBDA.name,
         )
         self.arguments = argument_parser.parse_args(str_arguments)
         self.default_options = {
@@ -319,8 +347,10 @@ class ApplicationConfiguration:
             TEST_DATA_AMOUNT: 1 << 14,
             VALIDATION_DATA_AMOUNT: 1 << 14,
             STOP_CRITERIA: StopCriteria('seconds1800:stagnant'),  # 1800 seconds is half an hour
-            IGNORED_COLUMNS: [],
-            CODE_VERSION: 7,
+            IGNORED_COLUMNS: '',
+            SAMPLES_PER_TEST_EVALUATION: 500000,
+            SAMPLES_PER_TRAIN_EVALUATION: 100000,
+            CODE_VERSION: 10,
         }
         self.option_dict = {}
 
@@ -381,6 +411,14 @@ class ApplicationConfiguration:
         return self.get_value(OPTIMIZER)
 
     @property
+    def samples_per_test_evaluation(self) -> int:
+        return self.get_value(SAMPLES_PER_TEST_EVALUATION)
+
+    @property
+    def samples_per_train_evaluation(self) -> int:
+        return self.get_value(SAMPLES_PER_TRAIN_EVALUATION)
+
+    @property
     def learning_rate(self) -> float:
         return self.get_value(LEARNING_RATE)
 
@@ -424,4 +462,4 @@ class ApplicationConfiguration:
         if not information_points:
             return "default-v{:d}".format(self.get_value(CODE_VERSION))
         else:
-            return "_".join(information_points)
+            return "v{v:d}_{info:s}".format(v=self.get_value(CODE_VERSION), info="_".join(information_points))
