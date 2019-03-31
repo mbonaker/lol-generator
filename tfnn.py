@@ -110,7 +110,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
             logits = logit[:, data_slice]
             handling = csv_column.handling if csv_column.name not in config.ignored_columns else dp.CsvColumnSpecification.HANDLING_NONE
             if handling == dp.CsvColumnSpecification.HANDLING_BOOL:
-                loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=ys, logits=logits))
+                loss = tf.cast(tf.losses.hinge_loss(labels=ys, logits=logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype)
                 self.losses['bool_{:s}'.format(csv_column.name)] = loss
                 self.labels['bool_{:s}'.format(csv_column.name)] = ys
         # per participant one-hot encodings
@@ -120,7 +120,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 slice_ = unknown_data_structure.csv_column_name_to_np_slice(key)
                 logits = logit[:, slice_]
                 ys = y[:, slice_]
-                loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=ys, logits=logits))
+                loss = tf.cast(tf.losses.hinge_loss(labels=ys, logits=logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype)
                 self.losses['onehot_{:s}'.format(key)] = loss
                 self.labels['onehot_{:s}'.format(key)] = ys
         for team_id in (0, 1):
@@ -130,7 +130,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 ban_slices.append(unknown_data_structure.csv_column_name_to_np_slice(ban_name))
             logits = sum(logit[:, ban_slice] for ban_slice in ban_slices)
             ys = sum(y[:, ban_slice] for ban_slice in ban_slices)
-            loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=ys, logits=logits))
+            loss = tf.cast(tf.losses.hinge_loss(labels=ys, logits=logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype)
             self.losses["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = loss
             self.labels["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = ys
         regularization = sum(tf.nn.l2_loss(w) for w, _, _ in self.layers if w is not None) * config.lambda_
