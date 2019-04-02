@@ -64,10 +64,7 @@ class NeuralNetwork:
         predictions = np.ndarray(shape=logit.shape, dtype=self.config.dtype)
         for data_slice, handling in unknown_data_structure.generate_handling_slices(self.config.ignored_columns):
             y_pred = logit[:, data_slice]
-            if handling == dp.CsvColumnSpecification.HANDLING_ONEHOT or \
-               handling == dp.CsvColumnSpecification.HANDLING_BOOL:
-                predictions[:, data_slice] = sigmoid(y_pred)
-            elif handling == dp.CsvColumnSpecification.HANDLING_NONE:
+            if handling == dp.CsvColumnSpecification.HANDLING_NONE:
                 predictions[:, data_slice] = np.nan
             else:
                 predictions[:, data_slice] = y_pred
