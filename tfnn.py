@@ -94,6 +94,8 @@ class TrainableNeuralNetwork(NeuralNetwork):
         #
         self.losses = OrderedDict()
         self.labels = OrderedDict()
+        self.accuracies = OrderedDict()
+        self.accuracy_amount = 0
         self.logger.log(logging.DEBUG, "Add loss calculation to the graph...")
 
         def ignore_col(col: dp.CsvColumnSpecification) -> bool:
@@ -104,6 +106,8 @@ class TrainableNeuralNetwork(NeuralNetwork):
             logits = logit[:, data_slice]
             loss = tf.reduce_mean(tf.reduce_sum(tf.abs(ys - logits), axis=1))
             self.losses['continuous_{!r}'.format(data_slice)] = loss
+            self.accuracies['continuous_{!r}'.format(data_slice)] = tf.reduce_sum((tf.abs(ys - logits) + 1) ** -1, axis=1)
+            self.accuracy_amount += tf.shape(logits)[1]
         for csv_column in unknown_csv_structure.columns:
             data_slice = unknown_data_structure.csv_column_spec_to_np_slice(csv_column)
             ys = y[:, data_slice]
@@ -113,6 +117,8 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 loss = tf.cast(tf.losses.hinge_loss(labels=ys, logits=logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype)
                 self.losses['bool_{:s}'.format(csv_column.name)] = loss
                 self.labels['bool_{:s}'.format(csv_column.name)] = ys
+                self.accuracies['bool_{:s}'.format(csv_column.name)] = tf.reduce_sum(tf.cast(tf.equal(logits > 0, ys > 0), self.config.dtype), axis=1)
+                self.accuracy_amount += tf.shape(logits)[1]
         # per participant one-hot encodings
         for pid in range(0, 9):
             for key_part in ("highestAchievedSeasonTier", "timeline.lane", "timeline.role"):
@@ -123,11 +129,18 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 loss = tf.cast(tf.losses.hinge_loss(labels=ys, logits=logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype)
                 self.losses['onehot_{:s}'.format(key)] = loss
                 self.labels['onehot_{:s}'.format(key)] = ys
+                self.accuracies['onehot_{:s}'.format(key)] = tf.cast(tf.equal(tf.argmax(logits, 1, output_type=tf.int32), tf.argmax(ys, 1, output_type=tf.int32)), self.config.dtype)
+                self.accuracy_amount += 1
         for team_id in (0, 1):
             ban_slices = []
             for ban_id in range(0, 4):
                 ban_name = "teams.{tid:d}.bans.{bid:d}.championId".format(tid=team_id, bid=ban_id)
-                ban_slices.append(unknown_data_structure.csv_column_name_to_np_slice(ban_name))
+                ban_slice = unknown_data_structure.csv_column_name_to_np_slice(ban_name)
+                ban_slices.append(ban_slice)
+                logits = logit[:, ban_slice]
+                ys = y[:, ban_slice]
+                self.accuracies["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = tf.cast(tf.equal(tf.argmax(logits, 1, output_type=tf.int32), tf.argmax(ys, 1, output_type=tf.int32)), self.config.dtype)
+                self.accuracy_amount += 1
             logits = sum(logit[:, ban_slice] for ban_slice in ban_slices)
             ys = sum(y[:, ban_slice] for ban_slice in ban_slices)
             loss = tf.cast(tf.losses.hinge_loss(labels=ys, logits=logits, reduction=tf.losses.Reduction.MEAN), self.config.dtype)
@@ -136,6 +149,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         regularization = sum(tf.nn.l2_loss(w) for w, _, _ in self.layers if w is not None) * config.lambda_
         self.losses["regularization"] = regularization
         self.loss = tf.math.add_n(list(self.losses.values()), "loss")
+        self.accuracy = tf.math.divide(tf.math.add_n(list(self.accuracies.values())), tf.cast(self.accuracy_amount, tf.float16), name="accuracy")
 
         #
         # Calculate the predictions as last layer
@@ -164,11 +178,10 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.mae = tf.reduce_mean(tf.math.abs(error), axis=0, name="MAE")
         self.train_summaries = tf.summary.merge([
             # tf.summary.histogram("train_mean_error", self.mae),
-            tf.summary.scalar("train_loss", self.loss),
+            tf.summary.scalar("train_accuracy", tf.reduce_mean(self.accuracy)),
         ])
         test_evaluation_summaries = [
-            tf.summary.histogram("test_mean_error", self.mae),
-            tf.summary.scalar("test_loss", self.loss),
+            tf.summary.scalar("test_accuracy", tf.reduce_mean(self.accuracy)),
         ]
         for csv_column in unknown_csv_structure.columns:
             column_slice = unknown_data_structure.csv_column_spec_to_np_slice(csv_column)
@@ -255,15 +268,11 @@ class TrainableNeuralNetwork(NeuralNetwork):
 
     def train_eval(self, sess: tf.Session):
         self.reassign_tf_weights_if_necessary(sess)
-        step, summaries = sess.run([self.global_step, self.train_summaries], feed_dict={self.iterator_handle: self.train_handle})
-        losses = sess.run(list(self.losses.values()), feed_dict={self.iterator_handle: self.train_handle})
-        labels = sess.run(list(self.labels.values()), feed_dict={self.iterator_handle: self.train_handle})
-        for name, loss in zip(self.losses.keys(), losses):
-            if loss < 0:
-                self.logger.log(logging.WARNING, "Loss {:s} is {:g} (< 0)".format(name, loss))
-                if name in self.labels:
-                    current_labels = labels[list(self.labels.keys()).index(name)]
-                    self.logger.log(logging.INFO, "Labels of {:s} contain values other than 1 or 0: {!r}".format(name, np.any(np.logical_and(current_labels != 0, current_labels != 1))))
+        step, summaries, accuracy_amount, *accuracies = sess.run([
+            self.global_step,
+            self.train_summaries,
+            self.accuracy_amount,
+        ] + list(self.accuracies.values()), feed_dict={self.iterator_handle: self.train_handle})
         training_amount = step * self.config.batch_size
         self.tf_writer.add_summary(summaries, training_amount)
 
