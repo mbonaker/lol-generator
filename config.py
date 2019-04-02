@@ -334,6 +334,11 @@ class ApplicationConfiguration:
             type=LAMBDA.str_to_value,
             help=LAMBDA.name,
         )
+        argument_parser.add_argument(
+            '--lr',
+            type=LEARNING_RATE.str_to_value,
+            help=LEARNING_RATE.name,
+        )
         self.arguments = argument_parser.parse_args(str_arguments)
         self.default_options = {
             LAMBDA: 0,
