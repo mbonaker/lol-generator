@@ -53,9 +53,6 @@ class NeuralNetwork:
         def relu(v: np.ndarray) -> np.ndarray:
             return np.maximum(v, 0)
 
-        def sigmoid(v: np.ndarray) -> np.ndarray:
-            return 1 / (1 + np.exp(-v))
-
         x = x.T
         for layer, biases in zip(self.weights[:-1], self.biases[:-1]):
             x = relu(layer.T @ x + biases)

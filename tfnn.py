@@ -222,7 +222,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 keep = batch[:, duration] > (15 * 60 - 1762.503) / 493.163
                 keep = keep[:, 0]
                 x: np.ndarray = batch[keep, self.data.np_structure.known_slice]
-                y: np.ndarray  = batch[keep, self.data.np_structure.unknown_without_win_slice]
+                y: np.ndarray = batch[keep, self.data.np_structure.unknown_without_win_slice]
                 # take some optional information from x out (simulate incomplete user input)
                 if isinstance(x, np.memmap) or not x.flags.writeable:
                     x_new = np.ndarray(x.shape, x.dtype)
