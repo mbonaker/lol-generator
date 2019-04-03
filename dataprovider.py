@@ -41,7 +41,7 @@ class CsvColumnSpecification:
 
     @staticmethod
     def get_optional_column_names():
-        for participant_id in range(0, 9):
+        for participant_id in range(0, 10):
             yield "participants.{:d}.championId".format(participant_id)
             for spell_id in (1, 2):
                 yield "participants.{:d}.spell{:d}Id".format(participant_id, spell_id)
@@ -461,7 +461,7 @@ class NumpyCorpusStructure:
 
     def _randomly_unspecify_column(self, ndarray: np.ndarray, column_slice: slice, random_state: np.random.RandomState, p: float = 0.1) -> None:
         column_contents = slice(column_slice.start, column_slice.stop - 1)
-        column_empty = column_slice.stop
+        column_empty = column_slice.stop - 1
         match_ids = random_state.choice(ndarray.shape[0], int(ndarray.shape[0] * p))
         ndarray[match_ids, column_contents] = 0
         ndarray[match_ids, column_empty] = 1
