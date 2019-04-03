@@ -398,6 +398,19 @@ class NumpyCorpusStructure:
                     out = np.minimum(out, np.iinfo(csv_col_spec.dtype).max)
                 dataframe[csv_col_spec.name] = out
 
+    def shuffle_participants(self, data: np.ndarray, random_state: np.random.RandomState) -> np.ndarray:
+        shuffled_data = np.ndarray(data.shape, data.dtype)
+        shuffled_data[:, :] = data
+        for cont_pid, rand_pid in enumerate(list(random_state.permutation(5)) + list(random_state.permutation(5) + 5)):
+            if cont_pid == rand_pid:
+                continue
+            cont_key_part = "participants.{pid:d}.".format(pid=cont_pid)
+            rand_key_part = "participants.{pid:d}.".format(pid=rand_pid)
+            cont_cids = np.where([col.name.startswith(cont_key_part) for col in self.columns])
+            rand_cids = np.where([col.name.startswith(rand_key_part) for col in self.columns])
+            #self.logger.debug("Switch participant {rpid:d} to position {cpid:d}, moving {amount:d} columns".format(rpid=rand_pid, cpid=cont_pid, amount=len(rand_cids)))
+            shuffled_data[:, cont_cids] = data[:, rand_cids]
+        return shuffled_data
 
     def column_indices_from_names(self, names: Iterable[str]) -> List[int]:
         indices = []

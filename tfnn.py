@@ -217,6 +217,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
             ndarray = self.data.get_ndarray()[0:-self.config.test_data_amount - self.config.validation_data_amount, :]
             duration = self.data.np_structure.csv_column_name_to_np_slice("gameDuration")
             for batch in np.split(ndarray, np.arange(self.config.batch_size, ndarray.shape[0], self.config.batch_size), axis=0):
+                batch = self.data.np_structure.shuffle_participants(batch, self.random_state)
                 # filter out 'remakes' (games that have been dissolved early due to leaving participants)
                 keep = batch[:, duration] > (15 * 60 - 1762.503) / 493.163
                 keep = keep[:, 0]
