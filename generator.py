@@ -19,6 +19,12 @@ def handle_all_inputs(config: ApplicationConfiguration):
         nn = tfnn.TrainableNeuralNetwork(corpus, config)
         nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)))
 
+    if config.shoud_optimize_hyperparameters:
+        corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True)
+        import confopt
+        opt = confopt.ConfigurationOptimizer(corpus)
+        opt.optimize()
+
     if config.should_read_stdin:
         in_data = dataprovider.KnownStdinProvider("../data", np.dtype(np.float16), True)
         out_data = dataprovider.DataProvider("../data", np.dtype(np.float16), dataprovider.PORTION_INTERESTING - dataprovider.PORTION_WIN, True)

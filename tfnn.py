@@ -211,6 +211,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
         self.tf_writer: Optional[tf.summary.FileWriter] = None
         self.running_duration = 0
         self.need_tf_weight_reassignment = False
+        self.best_seen_evaluation_accuracy = None
 
     def make_train_ndarray_batch_generator(self):
         def generate_ndarray_batches():
@@ -269,11 +270,13 @@ class TrainableNeuralNetwork(NeuralNetwork):
 
     def train_eval(self, sess: tf.Session):
         self.reassign_tf_weights_if_necessary(sess)
-        step, summaries, accuracy_amount, *accuracies = sess.run([
+        step, summaries, accuracy = sess.run([
             self.global_step,
             self.train_summaries,
-            self.accuracy_amount,
-        ] + list(self.accuracies.values()), feed_dict={self.iterator_handle: self.train_handle})
+            tf.reduce_mean(self.accuracy),
+        ], feed_dict={self.iterator_handle: self.train_handle})
+        if self.best_seen_evaluation_accuracy is None or self.best_seen_evaluation_accuracy < accuracy:
+            self.best_seen_evaluation_accuracy = accuracy
         training_amount = step * self.config.batch_size
         self.tf_writer.add_summary(summaries, training_amount)
 
@@ -290,7 +293,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
 
     def stop_session(self):
         self.tf_writer.close()
-        # tf.reset_default_graph()
+        tf.reset_default_graph()
 
     def reassign_tf_weights_if_necessary(self, sess: tf.Session):
         if self.need_tf_weight_reassignment:
@@ -345,3 +348,7 @@ class TrainableNeuralNetwork(NeuralNetwork):
                 self.logger.log(logging.DEBUG, "Do one training step...")
                 self.train_one_step(session)
                 trained_batches += 1
+        self.stop_session()
+
+    def get_best_seen_evaluation_accuracy(self) -> float:
+        return self.best_seen_evaluation_accuracy

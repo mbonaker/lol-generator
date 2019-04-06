@@ -295,6 +295,11 @@ class ApplicationConfiguration:
             help="If this flag is set, the corpus will be used to train the neural network.",
         )
         argument_parser.add_argument(
+            '-o', '--hyperopt',
+            action='store_true',
+            help="If this flag is set, the hyper parameter optimization is done.",
+        )
+        argument_parser.add_argument(
             '-l', '--label',
             type=LABEL.str_to_value,
             help="The name of this instance running (used for tensorboard).",
@@ -358,6 +363,10 @@ class ApplicationConfiguration:
             CODE_VERSION: 12,
         }
         self.option_dict = {}
+
+    @property
+    def shoud_optimize_hyperparameters(self) -> bool:
+        return self.arguments.hyperopt
 
     @property
     def should_read_stdin(self) -> bool:
