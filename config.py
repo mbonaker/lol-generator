@@ -224,18 +224,19 @@ class StopCriteria(StopCriterion):
     def __init__(self, keywords: str):
         self.logger = logging.getLogger(__name__)
         self.criteria = []
-        for keyword in keywords.split(":"):
-            if keyword.startswith('samples'):
-                self.criteria.append(MaxTrainingCriterion(suffixed_si_to_number(keyword[7:])))
-            elif keyword.startswith('stagnant'):
-                args = keyword[8:].split(',')
-                min_log = 30 if len(args) == 0 or args[0] == '' else int(args[0])
-                checkpoints = [0.75, 0.8] if len(args) < 2 else [float(arg) for arg in args[1:]]
-                self.criteria.append(StagnationCriterion(min_log, checkpoints))
-            elif keyword.startswith('seconds'):
-                self.criteria.append(TimingCriterion(suffixed_si_to_number(keyword[7:])))
-            else:
-                NotImplementedError()
+        if keywords and keywords != 'never':
+            for keyword in keywords.split(":"):
+                if keyword.startswith('samples'):
+                    self.criteria.append(MaxTrainingCriterion(suffixed_si_to_number(keyword[7:])))
+                elif keyword.startswith('stagnant'):
+                    args = keyword[8:].split(',')
+                    min_log = 30 if len(args) == 0 or args[0] == '' else int(args[0])
+                    checkpoints = [0.75, 0.8] if len(args) < 2 else [float(arg) for arg in args[1:]]
+                    self.criteria.append(StagnationCriterion(min_log, checkpoints))
+                elif keyword.startswith('seconds'):
+                    self.criteria.append(TimingCriterion(suffixed_si_to_number(keyword[7:])))
+                else:
+                    NotImplementedError()
 
     def update(self, status: TrainingStatus):
         for criterion in self.criteria:
