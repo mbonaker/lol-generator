@@ -31,10 +31,6 @@ class TrainableGenerator(Generator):
         self.logger.log(logging.DEBUG, "Initialize layers for trainable generator")
         self.layers = self.make_layers(len(column_structure.known_indices), len(column_structure.unknown_without_win_indices))
 
-        self.train_handle = None
-        self.test_handle = None
-        self.tf_writer: Optional[tf.summary.FileWriter] = None
-        self.running_duration = 0
         self.need_tf_weight_reassignment = False
         self.best_seen_evaluation_accuracy = None
 
@@ -266,6 +262,9 @@ class TrainableGenerator(Generator):
         session.run(tf.global_variables_initializer())
         return train_handle, test_handle
 
+    def get_best_seen_evaluation_accuracy(self) -> float:
+        return self.best_seen_evaluation_accuracy
+
     def train(self, file_name: str, data: dp.DataProvider):
         train_iterator, test_iterator, iterator_handle, data_iterator = self.make_data_iterator(data)
         self.layers = self.make_layers(data.known.shape[1], data.unknown_without_win.shape[1])
@@ -283,7 +282,7 @@ class TrainableGenerator(Generator):
             train_handle, test_handle = self.run_data_initializers(session, train_iterator, test_iterator)
 
             self.logger.log(logging.DEBUG, "Start the file writer for tensorboard")
-            self.tf_writer = tf.summary.FileWriter(self.config.tensorboard_path, session.graph, flush_secs=10)
+            tf_writer = tf.summary.FileWriter(self.config.tensorboard_path, session.graph, flush_secs=10)
 
             trained_batches = 0
             samples_since_test_evaluation = 0
@@ -310,7 +309,7 @@ class TrainableGenerator(Generator):
 
                 if do_train_eval:
                     samples_since_train_evaluation -= self.config.samples_per_train_evaluation
-                    self.tf_writer.add_summary(train_result['summary'], train_result['step'])
+                    tf_writer.add_summary(train_result['summary'], train_result['step'])
                 if do_test_eval:
                     samples_since_test_evaluation -= self.config.samples_per_test_evaluation
                     test_result = session.run({
@@ -318,7 +317,7 @@ class TrainableGenerator(Generator):
                         'loss': loss,
                         'accuracy': accuracy,
                     }, feed_dict={iterator_handle: test_handle})
-                    self.tf_writer.add_summary(test_result['summary'], train_result['step'])
+                    tf_writer.add_summary(test_result['summary'], train_result['step'])
                     if self.best_seen_evaluation_accuracy is None or self.best_seen_evaluation_accuracy < test_result['accuracy']:
                         self.best_seen_evaluation_accuracy = test_result['accuracy']
                         self.save_tf_weights(file_name, session)
@@ -334,8 +333,5 @@ class TrainableGenerator(Generator):
                         self.logger.log(logging.INFO, "Stop training loop")
                         break
                 trained_batches = train_result['step']
-        self.tf_writer.close()
+        tf_writer.close()
         tf.reset_default_graph()
-
-    def get_best_seen_evaluation_accuracy(self) -> float:
-        return self.best_seen_evaluation_accuracy
