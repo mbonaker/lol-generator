@@ -23,25 +23,25 @@ class ConfigurationOptimizer:
             HIDDEN_LAYERS.key:
                 hp.choice(HIDDEN_LAYERS.name, (
                     [
-                        hp.qloguniform('layer_1_1', math.log(1), math.log(2 ** 10), 1),
+                        hp.qloguniform('layer_1_1', math.log(1), math.log(2 ** 13), 1),
                     ], [
-                        hp.qloguniform('layer_2_2', math.log(1), math.log(2 ** 10), 1),
-                        hp.qloguniform('layer_2_1', math.log(1), math.log(2 ** 10), 1) - 1,
+                        hp.qloguniform('layer_2_2', math.log(1), math.log(2 ** 13), 1),
+                        hp.qloguniform('layer_2_1', math.log(1), math.log(2 ** 13), 1),
                     ], [
-                        hp.qloguniform('layer_3_3', math.log(1), math.log(2 ** 10), 1),
-                        hp.qloguniform('layer_3_2', math.log(1), math.log(2 ** 10), 1) - 1,
-                        hp.qloguniform('layer_3_1', math.log(1), math.log(2 ** 10), 1) - 1,
+                        hp.qloguniform('layer_3_3', math.log(1), math.log(2 ** 12), 1),
+                        hp.qloguniform('layer_3_2', math.log(1), math.log(2 ** 12), 1),
+                        hp.qloguniform('layer_3_1', math.log(1), math.log(2 ** 12), 1),
                     ], [
-                        hp.qloguniform('layer_4_4', math.log(1), math.log(2 ** 10), 1),
-                        hp.qloguniform('layer_4_3', math.log(1), math.log(2 ** 10), 1) - 1,
-                        hp.qloguniform('layer_4_2', math.log(1), math.log(2 ** 10), 1) - 1,
-                        hp.qloguniform('layer_4_1', math.log(1), math.log(2 ** 10), 1) - 1,
+                        hp.qloguniform('layer_4_4', math.log(1), math.log(2 ** 11), 1),
+                        hp.qloguniform('layer_4_3', math.log(1), math.log(2 ** 11), 1),
+                        hp.qloguniform('layer_4_2', math.log(1), math.log(2 ** 11), 1),
+                        hp.qloguniform('layer_4_1', math.log(1), math.log(2 ** 11), 1),
                     ], [
                         hp.qloguniform('layer_5_5', math.log(1), math.log(2 ** 10), 1),
-                        hp.qloguniform('layer_5_4', math.log(1), math.log(2 ** 10), 1) - 1,
-                        hp.qloguniform('layer_5_3', math.log(1), math.log(2 ** 10), 1) - 1,
-                        hp.qloguniform('layer_5_2', math.log(1), math.log(2 ** 10), 1) - 1,
-                        hp.qloguniform('layer_5_1', math.log(1), math.log(2 ** 10), 1) - 1,
+                        hp.qloguniform('layer_5_4', math.log(1), math.log(2 ** 10), 1),
+                        hp.qloguniform('layer_5_3', math.log(1), math.log(2 ** 10), 1),
+                        hp.qloguniform('layer_5_2', math.log(1), math.log(2 ** 10), 1),
+                        hp.qloguniform('layer_5_1', math.log(1), math.log(2 ** 10), 1),
                     ],
                 )),
             OPTIMIZER.key:
@@ -53,7 +53,8 @@ class ConfigurationOptimizer:
                     'sgd',
                 ]),
             SEED.key: 0,
-            DTYPE.key: hp.choice(DTYPE.name, ('float16', 'float32')),
+            # DTYPE.key: hp.choice(DTYPE.name, ('float16', 'float32')),
+            DTYPE.key: 'float16',
             BATCH_SIZE.key: hp.qloguniform(BATCH_SIZE.name, math.log(2 ** 9), math.log(2 ** 13), 1),
             ACTIVATION.key: hp.choice(ACTIVATION.name, (
                 'relu',
@@ -66,12 +67,7 @@ class ConfigurationOptimizer:
     @staticmethod
     def config_from_hyperopt_parameters(hyperopt_parameters) -> ApplicationConfiguration:
         config: ApplicationConfiguration = ApplicationConfiguration("")
-        reversed_hls = list()
-        base_node_amount = 0
-        for width in hyperopt_parameters[HIDDEN_LAYERS.key]:
-            reversed_hls.append(int(base_node_amount + width))
-            base_node_amount += width
-        config.set(HIDDEN_LAYERS, list(reversed(reversed_hls)))
+        config.set(HIDDEN_LAYERS, (int(n) for n in hyperopt_parameters[HIDDEN_LAYERS.key]))
         for config_option in (
             LEARNING_RATE,
             OPTIMIZER,
