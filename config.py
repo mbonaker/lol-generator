@@ -48,19 +48,42 @@ def str_to_ignored_columns(keyword_str: str) -> Iterable[str]:
     return cols
 
 
-def str_to_optimizer(keyword: str) -> Callable[[str], Any]:
+def optimize_adam(lr):
     import tensorflow as tf
+    return tf.train.AdamOptimizer(lr, epsilon=1e-4)
 
+
+def optimize_adagrad(lr):
+    import tensorflow as tf
+    return tf.train.AdagradOptimizer(lr)
+
+
+def optimize_adadelta(lr):
+    import tensorflow as tf
+    return tf.train.AdadeltaOptimizer(lr, epsilon=1e-4)
+
+
+def optimize_sgd(lr):
+    import tensorflow as tf
+    return tf.train.GradientDescentOptimizer(lr)
+
+
+def optimize_momentum(lr):
+    import tensorflow as tf
+    return tf.train.MomentumOptimizer(lr, 0.1)
+
+
+def str_to_optimizer(keyword: str) -> Callable[[str], Any]:
     if keyword == 'adam':
-        return lambda lr: tf.train.AdamOptimizer(lr, epsilon=1e-4)
+        return optimize_adam
     elif keyword == 'adagrad':
-        return lambda lr: tf.train.AdagradOptimizer(lr)
+        return optimize_adagrad
     elif keyword == 'adadelta':
-        return lambda lr: tf.train.AdadeltaOptimizer(lr, epsilon=1e-4)
+        return optimize_adadelta
     elif keyword == 'sgd':
-        return lambda lr: tf.train.GradientDescentOptimizer(lr)
+        return optimize_sgd
     elif keyword == 'momentum':
-        return lambda lr: tf.train.MomentumOptimizer(lr, 0.1)
+        return optimize_momentum
     else:
         raise ValueError("Keyword {!r} not understood".format(keyword))
 
@@ -323,6 +346,11 @@ class ApplicationConfiguration:
             '--bs',
             type=BATCH_SIZE.str_to_value,
             help=BATCH_SIZE.name,
+        )
+        argument_parser.add_argument(
+            '--opti', '--optim',
+            type=OPTIMIZER.str_to_value,
+            help=OPTIMIZER.name,
         )
         argument_parser.add_argument(
             '--evtest',
