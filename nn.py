@@ -13,10 +13,11 @@ PURPOSE_PREDICT = 4
 
 
 class NeuralNetwork:
-    def __init__(self, data: dp.DataProvider, config: ApplicationConfiguration):
+    def __init__(self, field_structure: dp.FieldStructure, column_structure: dp.ColumnStructure, config: ApplicationConfiguration):
         self.logger = logging.getLogger(__name__)
         self.config = config
-        self.data = data
+        self.field_structure = field_structure
+        self.column_structure = column_structure
 
         self.weights = None
         self.biases = None
@@ -43,11 +44,17 @@ class NeuralNetwork:
         assert len(weights) == len(biases)
         np.savez_compressed(file_name, count=len(self.weights), **weights, **biases)
 
-    def predict(self) -> np.ndarray:
-        unknown_csv_structure = dp.CsvCorpusStructure(self.data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
-        unknown_data_structure = dp.NumpyCorpusStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
 
-        x = self.data.get_ndarray(dp.PORTION_KNOWN)
+class Generator(NeuralNetwork):
+    def predict(self, data: dp.DataProvider) -> np.ndarray:
+        if data.columns != self.column_structure:
+            raise ValueError("Wrong data column structure")
+        if data.fields != self.field_structure:
+            raise ValueError("Wrong data field structure")
+        unknown_csv_structure = dp.FieldStructure(data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_data_structure = dp.ColumnStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
+
+        x = data.get_ndarray(dp.PORTION_KNOWN)
         self.logger.log(logging.DEBUG, "Predict for known data of shape {shape!r}.".format(shape=x.shape))
 
         def relu(v: np.ndarray) -> np.ndarray:
@@ -61,8 +68,13 @@ class NeuralNetwork:
         predictions = np.ndarray(shape=logit.shape, dtype=self.config.dtype)
         for data_slice, handling in unknown_data_structure.generate_handling_slices(self.config.ignored_columns):
             y_pred = logit[:, data_slice]
-            if handling == dp.CsvColumnSpecification.HANDLING_NONE:
+            if handling == dp.FieldSpecification.HANDLING_NONE:
                 predictions[:, data_slice] = np.nan
             else:
                 predictions[:, data_slice] = y_pred
         return predictions
+
+
+class Discriminator(NeuralNetwork):
+    def predict(self) -> np.ndarray:
+        raise NotImplementedError()

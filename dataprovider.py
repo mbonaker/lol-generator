@@ -29,7 +29,7 @@ class FormattingError(BaseException):
     pass
 
 
-class CsvColumnSpecification:
+class FieldSpecification:
     # Property Path,Format,Recommended Handling,Default,Occurrence,Mean,Standard Deviation,Mean Deviation,Min,Max,Median,Mode
     HANDLING_CONTINUOUS = 0
     HANDLING_ONEHOT = 1
@@ -40,7 +40,7 @@ class CsvColumnSpecification:
     OCCURRENCE_PERTEAM = 2
 
     @staticmethod
-    def get_optional_column_names():
+    def get_optional_field_names():
         for participant_id in range(0, 10):
             yield "participants.{:d}.championId".format(participant_id)
             for spell_id in (1, 2):
@@ -48,7 +48,7 @@ class CsvColumnSpecification:
 
     @staticmethod
     def from_dict(source: Dict[str, str], known_data_optional: bool = False):
-        optional_column_names = CsvColumnSpecification.get_optional_column_names()
+        optional_column_names = FieldSpecification.get_optional_field_names()
         name = source["Property Path"]
         if source["Format"].startswith("enum("):
             levels = source["Format"][5:-1].split("|")
@@ -64,14 +64,14 @@ class CsvColumnSpecification:
             }[source["Format"]]
             converter = format_spec
         handling = {
-            "continuous": CsvColumnSpecification.HANDLING_CONTINUOUS,
-            "bool": CsvColumnSpecification.HANDLING_BOOL,
-            "one-hot": CsvColumnSpecification.HANDLING_ONEHOT,
+            "continuous": FieldSpecification.HANDLING_CONTINUOUS,
+            "bool": FieldSpecification.HANDLING_BOOL,
+            "one-hot": FieldSpecification.HANDLING_ONEHOT,
         }[source["Recommended Handling"]]
         occurrence = {
-            "single": CsvColumnSpecification.OCCURRENCE_SINGLE,
-            "per-participant": CsvColumnSpecification.OCCURRENCE_PERPARTICIPANT,
-            "per-team": CsvColumnSpecification.OCCURRENCE_PERTEAM,
+            "single": FieldSpecification.OCCURRENCE_SINGLE,
+            "per-participant": FieldSpecification.OCCURRENCE_PERPARTICIPANT,
+            "per-team": FieldSpecification.OCCURRENCE_PERTEAM,
         }[source["Occurrence"]]
         mean = float(source["Mean"]) if source["Mean"] else None
         sd = float(source["Standard Deviation"]) if source["Standard Deviation"] else None
@@ -92,7 +92,7 @@ class CsvColumnSpecification:
                 default = md
             else:
                 default = converter(source[default_column])
-        return CsvColumnSpecification(name, format_spec, handling, default, occurrence, mean, sd, md, min_value, max_value, median, mode)
+        return FieldSpecification(name, format_spec, handling, default, occurrence, mean, sd, md, min_value, max_value, median, mode)
 
     def __init__(self, name: str, format_spec, handling: int, default, occurrence: int, mean: Optional[float], sd: Optional[float], md: Optional[float], min_value, max_value, median, mode):
         self.name = name
@@ -139,42 +139,72 @@ class CsvColumnSpecification:
     def __hash__(self):
         return hash(self.name)
 
+    def __eq__(self, other):
+        if not isinstance(other, FieldSpecification):
+            return False
+        return self.name == other.name
 
-class CsvCorpusStructure:
+
+class FieldStructure:
     def __init__(self, data_path: str, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
         self.data_path = data_path
         self.logger = logging.getLogger(__name__)
         portion_set = set()
         if portion & PORTION_KNOWN:
-            self.known = self.read_column_list_file("{path}/columns/known".format(path=data_path))
-            portion_set.update(self.known)
+            self.known_names = self.read_field_list_file("{path}/columns/known".format(path=data_path))
+            portion_set.update(self.known_names)
         else:
-            self.known = None
+            self.known_names = None
         if portion & PORTION_UNKNOWN - PORTION_WIN:
-            self.unknown = self.read_column_list_file("{path}/columns/unknown".format(path=data_path))
-            self.unknown_without_win = tuple(col for col in self.unknown if col not in ("teams.0.win", "teams.1.win"))
-            portion_set.update(self.unknown_without_win)
+            self.unknown_names = self.read_field_list_file("{path}/columns/unknown".format(path=data_path))
+            self.unknown_without_win_names = tuple(col for col in self.unknown_names if col not in ("teams.0.win", "teams.1.win"))
+            portion_set.update(self.unknown_without_win_names)
         else:
-            self.unknown = None
-            self.unknown_without_win = None
+            self.unknown_names = None
+            self.unknown_without_win_names = None
         if (portion & PORTION_INTERESTING - PORTION_WIN) == PORTION_INTERESTING - PORTION_WIN:
-            self.interesting = self.read_column_list_file("{path}/columns/interesting".format(path=data_path))
-            self.interesting_without_win = tuple(col for col in self.interesting if col not in ("teams.0.win", "teams.1.win"))
-            portion_set.update(self.interesting_without_win)
+            self.interesting_names = self.read_field_list_file("{path}/columns/interesting".format(path=data_path))
+            self.interesting_without_win_names = tuple(col for col in self.interesting_names if col not in ("teams.0.win", "teams.1.win"))
+            portion_set.update(self.interesting_without_win_names)
         else:
-            self.interesting = None
-            self.interesting_without_win = None
+            self.interesting_names = None
+            self.interesting_without_win_names = None
+        self.win_names = ("teams.0.win", "teams.1.win")
         if portion & PORTION_WIN:
-            portion_set.update(("teams.0.win", "teams.1.win"))
+            portion_set.update(self.win_names)
         assert len(portion_set) > 0
         self.champion_names = self.read_names_csv("{path}/champion_names.csv".format(path=data_path))
         self.spell_names = self.read_names_csv("{path}/spell_names.csv".format(path=data_path))
         with open("{path}/columns/interesting.csv".format(path=data_path), "r") as f:
-            self.columns: List[CsvColumnSpecification] = list()
+            self.specs: List[FieldSpecification] = list()
             csv_data = csv.DictReader(f)
             for line in csv_data:
                 if line['Property Path'] in portion_set:
-                    self.columns.append(CsvColumnSpecification.from_dict(line, known_data_optional))
+                    self.specs.append(FieldSpecification.from_dict(line, known_data_optional))
+
+    @property
+    def known(self) -> List[FieldSpecification]:
+        return [field for field in self.specs if field.name in self.known_names]
+
+    @property
+    def unknown(self) -> List[FieldSpecification]:
+        return [field for field in self.specs if field.name in self.unknown_names]
+
+    @property
+    def interesting(self) -> List[FieldSpecification]:
+        return [field for field in self.specs if field.name in self.interesting_names]
+
+    @property
+    def unknown_without_win(self) -> List[FieldSpecification]:
+        return [field for field in self.specs if field.name in self.unknown_without_win_names]
+
+    @property
+    def interesting_without_win(self) -> List[FieldSpecification]:
+        return [field for field in self.specs if field.name in self.interesting_without_win_names]
+
+    @property
+    def win(self) -> List[FieldSpecification]:
+        return [field for field in self.specs if field.name in self.win_names]
 
     @staticmethod
     def read_names_csv(full_path: str) -> Dict[int, str]:
@@ -185,7 +215,7 @@ class CsvCorpusStructure:
             return dict((int(line["id"]), line["name"]) for line in csv_data)
 
     @staticmethod
-    def read_column_list_file(full_path: str) -> Tuple[str, ...]:
+    def read_field_list_file(full_path: str) -> Tuple[str, ...]:
         logger = logging.getLogger(__name__)
         logger.log(logging.DEBUG, "Reading {path!r}...".format(path=full_path))
         with open(full_path, "r") as f:
@@ -206,73 +236,67 @@ class CsvCorpusStructure:
 
     @property
     def dtype(self) -> Dict[str, Union[np.dtype, pandas.api.types.CategoricalDtype]]:
-        return dict((col.name, col.dtype) for col in self.columns)
+        return dict((col.name, col.dtype) for col in self.specs)
 
 
-class NumpyColumnSpecification:
-    def __init__(self, csv_column_specification: CsvColumnSpecification):
-        self.csv_column_specification = csv_column_specification
-        self.handling = csv_column_specification.handling
+class ColumnSpecification:
+    def __init__(self, field: FieldSpecification):
+        self.field = field
+        self.handling = field.handling
 
     @property
     def name(self):
-        return self.csv_column_specification.name
+        return self.field.name
 
     def __str__(self):
         return self.name
 
 
-class NumpyOneHotFieldColumnSpecification(NumpyColumnSpecification):
-    def __init__(self, csv_column_specification: CsvColumnSpecification, key: str):
-        super().__init__(csv_column_specification)
+class OneHotFieldColumnSpecification(ColumnSpecification):
+    def __init__(self, field: FieldSpecification, key: str):
+        super().__init__(field)
         self.key = key
 
     @property
     def name(self):
-        return "{column_name}.{one_hot_level}".format(column_name=self.csv_column_specification.name, one_hot_level=self.key)
+        return "{column_name}.{one_hot_level}".format(column_name=self.field.name, one_hot_level=self.key)
 
 
-class NumpyCorpusStructure:
-
-    def __init__(self, csv_structure: CsvCorpusStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
+class ColumnStructure:
+    def __init__(self, field_structure: FieldStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
         # logging
         self.logger = logging.getLogger(__name__)
         logger = logging.getLogger(__name__)
-        logger.log(logging.DEBUG, "Initializing csv structure to numpy structure conversion...")
+        logger.log(logging.DEBUG, "Initializing field structure to column structure conversion...")
 
         # initialize variables
         self.portion = portion
-        self.known = csv_structure.known
-        self.unknown = csv_structure.unknown
-        self.unknown_without_win = csv_structure.unknown_without_win
-        self.win = ('teams.0.win', 'teams.1.win')
-        self.interesting = csv_structure.interesting
-        self.interesting_without_win = csv_structure.interesting_without_win
+        self.fields = field_structure
         self.dtype = dtype
 
         # create the column representations
-        self.columns: List[NumpyColumnSpecification] = []
-        for csv_column in csv_structure.columns:
+        self.specs: List[ColumnSpecification] = []
+        for field in field_structure.specs:
             # if it is not part of this corpus
             use_column = False
-            if self.portion & PORTION_KNOWN and csv_column.name in self.known:
+            if self.portion & PORTION_KNOWN and field in self.fields.known:
                 use_column = True
-            if self.portion & PORTION_WIN and csv_column.name in self.win:
+            if self.portion & PORTION_WIN and field in self.fields.win:
                 use_column = True
-            if self.portion & (PORTION_UNKNOWN - PORTION_WIN) and csv_column.name in self.unknown_without_win:
+            if self.portion & (PORTION_UNKNOWN - PORTION_WIN) and field in self.fields.unknown_without_win:
                 use_column = True
             if not use_column:
                 continue
 
             # create the column representation(s) which are multiple in case of one-hot encoding
-            if csv_column.handling == CsvColumnSpecification.HANDLING_BOOL:
-                self.columns.append(NumpyColumnSpecification(csv_column))
-            elif csv_column.handling == CsvColumnSpecification.HANDLING_CONTINUOUS:
-                self.columns.append(NumpyColumnSpecification(csv_column))
-            elif csv_column.handling == CsvColumnSpecification.HANDLING_ONEHOT:
-                assert hasattr(csv_column.format_spec, '__iter__') or csv_column.format_spec == bool
-                for key in (True, False) if csv_column.format_spec is bool else csv_column.format_spec:
-                    self.columns.append(NumpyOneHotFieldColumnSpecification(csv_column, key))
+            if field.handling == FieldSpecification.HANDLING_BOOL:
+                self.specs.append(ColumnSpecification(field))
+            elif field.handling == FieldSpecification.HANDLING_CONTINUOUS:
+                self.specs.append(ColumnSpecification(field))
+            elif field.handling == FieldSpecification.HANDLING_ONEHOT:
+                assert hasattr(field.format_spec, '__iter__') or field.format_spec == bool
+                for key in (True, False) if field.format_spec is bool else field.format_spec:
+                    self.specs.append(OneHotFieldColumnSpecification(field, key))
             else:
                 raise ValueError("Column handling type unknown")
 
@@ -280,21 +304,21 @@ class NumpyCorpusStructure:
         # This way we can use slicing and numpy views to access the different portions in most cases.
         column_order = []
         if self.portion & PORTION_KNOWN:
-            column_order.extend(self.known)
+            column_order.extend(self.fields.known)
         if self.portion & (PORTION_UNKNOWN - PORTION_WIN):
-            column_order.extend(u for u in self.unknown if u not in self.win)
+            column_order.extend(u for u in self.fields.unknown if u not in self.fields.win)
         if self.portion & PORTION_WIN:
-            column_order.extend(self.win)
-        self.columns.sort(key=lambda col: column_order.index(col.csv_column_specification.name))
+            column_order.extend(self.fields.win)
+        self.specs.sort(key=lambda col: column_order.index(col.field))
 
     def get_portion_slice(self, portion: int):
         if not self.portion & portion:
-            raise LookupError("The portion to take a slice from is not contained in this corpus.")
+            raise LookupError("The portion to take a slice from is at least partially not contained in this corpus.")
         if portion == PORTION_KNOWN:
-            for index, col in enumerate(self.columns):
-                if col.csv_column_specification.name not in self.known:
+            for index, col in enumerate(self.specs):
+                if col.field not in self.fields.known:
                     return slice(0, index)
-            return slice(0, len(self.columns))
+            return slice(0, len(self.specs))
         elif portion == PORTION_UNKNOWN:
             if not self.portion & PORTION_KNOWN:
                 return slice(0, None)
@@ -322,81 +346,131 @@ class NumpyCorpusStructure:
         elif portion == PORTION_WIN:
             return slice(-2, None)
 
+    def get_fields_by_portion(self, portion: int) -> Iterable[FieldSpecification]:
+        if portion == PORTION_KNOWN:
+            return self.fields.known
+        elif portion == PORTION_WIN:
+            return self.fields.win
+        elif portion == PORTION_UNKNOWN:
+            return self.fields.unknown
+        elif portion == PORTION_INTERESTING:
+            return self.fields.interesting
+        elif portion == PORTION_INTERESTING - PORTION_WIN:
+            return self.fields.interesting_without_win
+        elif portion == PORTION_UNKNOWN - PORTION_WIN:
+            return self.fields.unknown_without_win
+        else:
+            raise ValueError("Unknown portion {:d}".format(portion))
+
+    def get_portion_indices(self, portion: int) -> Generator[int, None, None]:
+        if self.portion & portion != portion:
+            raise LookupError("The portion to take is at least partially not contained in this corpus.")
+        if portion == self.portion:
+            yield from range(len(self.specs))
+        fields = self.get_fields_by_portion(portion)
+        for index, col in enumerate(self.specs):
+            if col.field in fields:
+                yield index
+
     @property
     def known_slice(self) -> slice:
         return self.get_portion_slice(PORTION_KNOWN)
+
+    @property
+    def known_indices(self) -> List[int]:
+        return list(self.get_portion_indices(PORTION_KNOWN))
 
     @property
     def unknown_slice(self) -> slice:
         return self.get_portion_slice(PORTION_UNKNOWN)
 
     @property
+    def unknown_indices(self) -> List[int]:
+        return list(self.get_portion_indices(PORTION_UNKNOWN))
+
+    @property
     def unknown_without_win_slice(self) -> slice:
         return self.get_portion_slice(PORTION_UNKNOWN - PORTION_WIN)
+
+    @property
+    def unknown_without_win_indices(self) -> List[int]:
+        return list(self.get_portion_indices(PORTION_UNKNOWN - PORTION_WIN))
 
     @property
     def interesting_slice(self) -> slice:
         return self.get_portion_slice(PORTION_INTERESTING)
 
     @property
+    def interesting_indices(self) -> List[int]:
+        return list(self.get_portion_indices(PORTION_INTERESTING))
+
+    @property
     def interesting_without_win_slice(self) -> slice:
         return self.get_portion_slice(PORTION_INTERESTING - PORTION_WIN)
+
+    @property
+    def interesting_without_win_indices(self) -> List[int]:
+        return list(self.get_portion_indices(PORTION_INTERESTING - PORTION_WIN))
 
     @property
     def win_slice(self) -> slice:
         return self.get_portion_slice(PORTION_WIN)
 
+    @property
+    def win_indices(self) -> List[int]:
+        return list(self.get_portion_indices(PORTION_WIN))
+
     def pd2np(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
         self.logger.log(logging.DEBUG, "Convert pandas dataframe to ndarray...")
-        for i, np_col_spec in enumerate(self.columns):
-            csv_col_spec = np_col_spec.csv_column_specification
-            pd_col = dataframe[csv_col_spec.name]
-            if isinstance(np_col_spec, NumpyOneHotFieldColumnSpecification):
-                ndarray[:, i] = (pd_col == np_col_spec.key).astype(self.dtype)
-            elif np_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and pd_col.dtype.name == "category":
-                ndarray[:, i] = (pd_col == csv_col_spec.mode).astype(self.dtype)
-            elif np_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and is_numeric_dtype(pd_col.dtype):
-                ndarray[:, i] = (pd_col > csv_col_spec.mean).astype(self.dtype)
+        for i, column in enumerate(self.specs):
+            field = column.field
+            pd_col = dataframe[field.name]
+            if isinstance(column, OneHotFieldColumnSpecification):
+                ndarray[:, i] = (pd_col == column.key).astype(self.dtype)
+            elif column.handling == FieldSpecification.HANDLING_BOOL and pd_col.dtype.name == "category":
+                ndarray[:, i] = (pd_col == field.mode).astype(self.dtype)
+            elif column.handling == FieldSpecification.HANDLING_BOOL and is_numeric_dtype(pd_col.dtype):
+                ndarray[:, i] = (pd_col > field.mean).astype(self.dtype)
             else:
-                mean = csv_col_spec.mean
-                sd = csv_col_spec.sd
+                mean = field.mean
+                sd = field.sd
                 ndarray[:, i] = (pd_col - mean) / sd
 
     def np2pd(self, dataframe: pandas.DataFrame, ndarray: np.ndarray) -> None:
         assert dataframe.shape[0] == ndarray.shape[0]
-        csv_col_specs = set(np_col_spec.csv_column_specification for np_col_spec in self.columns)
-        for csv_col_spec in csv_col_specs:
-            column_slice = self.csv_column_spec_to_np_slice(csv_col_spec)
+        fields = set(column.field for column in self.specs)
+        for field in fields:
+            column_slice = self.field_to_column_slice(field)
             assert column_slice.stop is None or column_slice.stop < ndarray.shape[1]
-            if csv_col_spec.handling == CsvColumnSpecification.HANDLING_ONEHOT:
+            if field.handling == FieldSpecification.HANDLING_ONEHOT:
                 level_indices = np.argmax(ndarray[:, column_slice], axis=1)
-                dataframe[csv_col_spec.name] = csv_col_spec.format_spec[level_indices]
-            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and isinstance(csv_col_spec.format_spec, Iterable):
+                dataframe[field.name] = field.format_spec[level_indices]
+            elif field.handling == FieldSpecification.HANDLING_BOOL and isinstance(field.format_spec, Iterable):
                 level_indices = (ndarray[:, column_slice] > 0).astype(np.int32)
-                true_value = csv_col_spec.mode
-                false_value = next(level for level in csv_col_spec.format_spec if level != true_value)
-                dataframe[csv_col_spec.name] = np.array([false_value, true_value])[level_indices]
-            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and (csv_col_spec.format_spec is int or csv_col_spec.format_spec is float):
+                true_value = field.mode
+                false_value = next(level for level in field.format_spec if level != true_value)
+                dataframe[field.name] = np.array([false_value, true_value])[level_indices]
+            elif field.handling == FieldSpecification.HANDLING_BOOL and (field.format_spec is int or field.format_spec is float):
                 level_indices = (ndarray[:, column_slice] > 0).astype(np.int32)
-                mean = csv_col_spec.mean
-                md = csv_col_spec.md
+                mean = field.mean
+                md = field.md
                 true_value = mean + md
                 false_value = mean - md
-                dataframe[csv_col_spec.name] = np.array([false_value, true_value])[level_indices]
-            elif csv_col_spec.handling == CsvColumnSpecification.HANDLING_BOOL and csv_col_spec.format_spec is bool:
+                dataframe[field.name] = np.array([false_value, true_value])[level_indices]
+            elif field.handling == FieldSpecification.HANDLING_BOOL and field.format_spec is bool:
                 level_indices = (ndarray[:, column_slice] > 0).astype(np.int32)
-                dataframe[csv_col_spec.name] = np.array([False, True])[level_indices]
+                dataframe[field.name] = np.array([False, True])[level_indices]
             else:
-                mean = csv_col_spec.mean
-                sd = csv_col_spec.sd
+                mean = field.mean
+                sd = field.sd
                 out = np.float64(ndarray[:, column_slice]) * sd + mean
-                if csv_col_spec.min_value >= 0:
+                if field.min_value >= 0:
                     out = np.maximum(out, 0)
-                if csv_col_spec.format_spec is float:
-                    out = np.minimum(out, np.finfo(csv_col_spec.dtype).max)
-                elif csv_col_spec.format_spec is int:
-                    out = np.minimum(out, np.iinfo(csv_col_spec.dtype).max)
-                dataframe[csv_col_spec.name] = out
+                if field.format_spec is float:
+                    out = np.minimum(out, np.finfo(field.dtype).max)
+                elif field.format_spec is int:
+                    out = np.minimum(out, np.iinfo(field.dtype).max)
+                dataframe[field.name] = out
 
     def shuffle_participants(self, data: np.ndarray, random_state: np.random.RandomState) -> np.ndarray:
         shuffled_data = np.ndarray(data.shape, data.dtype)
@@ -406,34 +480,33 @@ class NumpyCorpusStructure:
                 continue
             cont_key_part = "participants.{pid:d}.".format(pid=cont_pid)
             rand_key_part = "participants.{pid:d}.".format(pid=rand_pid)
-            cont_cids = np.where([col.name.startswith(cont_key_part) for col in self.columns])
-            rand_cids = np.where([col.name.startswith(rand_key_part) for col in self.columns])
-            #self.logger.debug("Switch participant {rpid:d} to position {cpid:d}, moving {amount:d} columns".format(rpid=rand_pid, cpid=cont_pid, amount=len(rand_cids)))
+            cont_cids = np.where([col.name.startswith(cont_key_part) for col in self.specs])
+            rand_cids = np.where([col.name.startswith(rand_key_part) for col in self.specs])
             shuffled_data[:, cont_cids] = data[:, rand_cids]
         return shuffled_data
 
     def column_indices_from_names(self, names: Iterable[str]) -> List[int]:
         indices = []
-        for index, np_col_spec in enumerate(self.columns):
-            if np_col_spec.csv_column_specification.name in names:
+        for index, column in enumerate(self.specs):
+            if column.field.name in names:
                 indices.append(index)
         return indices
 
-    def csv_column_name_to_np_slice(self, name: str) -> slice:
-        for col in self.columns:
-            if col.csv_column_specification.name == name:
-                return self.csv_column_spec_to_np_slice(col.csv_column_specification)
-        raise KeyError("Did not find column {!r}".format(name))
+    def field_name_to_column_slice(self, name: str) -> slice:
+        for col in self.specs:
+            if col.field.name == name:
+                return self.field_to_column_slice(col.field)
+        raise KeyError("Did not find field {!r}".format(name))
 
-    def csv_column_spec_to_np_slice(self, csv_column: CsvColumnSpecification) -> slice:
-        return next(self.generate_slices(lambda c: c == csv_column, 1))
+    def field_to_column_slice(self, field: FieldSpecification) -> slice:
+        return next(self.generate_slices(lambda c: c == field, 1))
 
-    def generate_slices(self, query: Callable[[CsvColumnSpecification], bool], max_slices: Optional[int] = None) -> Generator[slice, None, None]:
+    def generate_slices(self, query: Callable[[FieldSpecification], bool], max_slices: Optional[int] = None) -> Generator[slice, None, None]:
         hit_start = None
         slice_amount = 0
-        for i, np_col_spec in enumerate(self.columns):
-            csv_col_spec = np_col_spec.csv_column_specification
-            hit = query(csv_col_spec)
+        for i, column in enumerate(self.specs):
+            field = column.field
+            hit = query(field)
             if hit and hit_start is None:
                 hit_start = i
             elif not hit and hit_start is not None:
@@ -449,12 +522,12 @@ class NumpyCorpusStructure:
         current_handling = None
         current_start = 0
         current_end = 0
-        for np_col_spec in self.columns:
-            csv_col_spec = np_col_spec.csv_column_specification
-            if csv_col_spec.name in ignored_columns:
-                handling = CsvColumnSpecification.HANDLING_NONE
+        for column in self.specs:
+            field = column.field
+            if field.name in ignored_columns:
+                handling = FieldSpecification.HANDLING_NONE
             else:
-                handling = csv_col_spec.handling
+                handling = field.handling
             if current_handling is not None and handling != current_handling:
                 yield (slice(current_start, current_end), current_handling)
                 current_start = current_end
@@ -467,86 +540,91 @@ class NumpyCorpusStructure:
         if current_handling is not None:
             yield (slice(current_start, current_end), current_handling)
 
-    def randomly_unspecify_optional_columns(self, ndarray: np.ndarray, random_state: np.random.RandomState, p: float = 0.1) -> None:
-        for column_name in CsvColumnSpecification.get_optional_column_names():
-            column_slice = self.csv_column_name_to_np_slice(column_name)
-            self._randomly_unspecify_column(ndarray, column_slice, random_state, p)
+    def randomly_unspecify_optional_columns(self, ndarray: np.ndarray, random_state: np.random.RandomState, p: float = 0.5, q: float = 0.1) -> np.ndarray:
+        rows_kept = random_state.choice(ndarray.shape[0], int(ndarray.shape[0] * q))
+        for field_name in FieldSpecification.get_optional_field_names():
+            column_slice = self.field_name_to_column_slice(field_name)
+            ndarray = self._randomly_unspecify_column(ndarray, column_slice, random_state, rows_kept, p)
+        return ndarray
 
-    def _randomly_unspecify_column(self, ndarray: np.ndarray, column_slice: slice, random_state: np.random.RandomState, p: float = 0.1) -> None:
+    def _randomly_unspecify_column(self, ndarray: np.ndarray, column_slice: slice, random_state: np.random.RandomState, rows_kept: np.ndarray, p: float = 0.5) -> np.ndarray:
         column_contents = slice(column_slice.start, column_slice.stop - 1)
         column_empty = column_slice.stop - 1
-        match_ids = random_state.choice(ndarray.shape[0], int(ndarray.shape[0] * p))
-        ndarray[match_ids, column_contents] = 0
-        ndarray[match_ids, column_empty] = 1
+        mask = np.zeros(ndarray.shape[0], dtype=np.bool_)
+        mask[random_state.choice(ndarray.shape[0], int(ndarray.shape[0] * p))] = True
+        mask[rows_kept] = False
+        ndarray[mask, column_contents] = 0
+        ndarray[mask, column_empty] = 1
+        return ndarray
 
 
 class DataProvider:
     def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False):
         self.logger = logging.getLogger(__name__)
         self.data_path = data_path
-        self.csv_structure = CsvCorpusStructure(data_path, portion, known_data_is_optional)
-        self.np_structure = NumpyCorpusStructure(self.csv_structure, dtype, portion, known_data_is_optional)
-        self.data: np.ndarray = None
+        self.fields = FieldStructure(data_path, portion, known_data_is_optional)
+        self.columns = ColumnStructure(self.fields, dtype, portion, known_data_is_optional)
+        self.data: Optional[np.ndarray] = None
 
     @property
     def known(self) -> np.ndarray:
-        return self.data[:, self.np_structure.known_slice]
+        return self.data[:, self.columns.known_slice]
 
     @known.setter
     def known(self, value) -> None:
-        self.data[:, self.np_structure.known_slice] = value
+        self.data[:, self.columns.known_slice] = value
 
     @property
     def unknown(self) -> np.ndarray:
-        return self.data[:, self.np_structure.unknown_slice]
+        return self.data[:, self.columns.unknown_slice]
 
     @unknown.setter
     def unknown(self, value) -> None:
-        self.data[:, self.np_structure.unknown_slice] = value
+        self.data[:, self.columns.unknown_slice] = value
 
     @property
     def unknown_without_win(self) -> np.ndarray:
-        return self.data[:, self.np_structure.unknown_without_win_slice]
+        return self.data[:, self.columns.unknown_without_win_slice]
 
     @unknown_without_win.setter
     def unknown_without_win(self, value) -> None:
-        self.data[:, self.np_structure.unknown_without_win_slice] = value
+        self.data[:, self.columns.unknown_without_win_slice] = value
 
     @property
     def interesting(self) -> np.ndarray:
-        return self.data[:, self.np_structure.interesting_slice]
+        return self.data[:, self.columns.interesting_slice]
 
     @interesting.setter
     def interesting(self, value) -> None:
-        self.data[:, self.np_structure.interesting_slice] = value
+        self.data[:, self.columns.interesting_slice] = value
 
     @property
     def interesting_without_win(self) -> np.ndarray:
-        return self.data[:, self.np_structure.interesting_without_win_slice]
+        return self.data[:, self.columns.interesting_without_win_slice]
 
     @interesting_without_win.setter
     def interesting_without_win(self, value) -> None:
-        self.data[:, self.np_structure.interesting_without_win_slice] = value
+        self.data[:, self.columns.interesting_without_win_slice] = value
 
     @property
     def win(self) -> np.ndarray:
-        return self.data[:, self.np_structure.win_slice]
+        return self.data[:, self.columns.win_slice]
 
     @win.setter
     def win(self, value) -> None:
-        self.data[:, self.np_structure.win_slice] = value
+        self.data[:, self.columns.win_slice] = value
 
     def get_ndarray(self, portion: Optional[int] = None):
         if portion is None:
             return self.data
         else:
-            return self.data[:, self.np_structure.get_portion_slice(portion)]
+            return self.data[:, self.columns.get_portion_slice(portion)]
 
     def get_as_dataframe(self) -> pandas.DataFrame:
         self.logger.log(logging.DEBUG, "Calculating the dataframe for numpy data (np shape: {shape!r})...".format(shape=self.data.shape))
-        dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, self.data.shape[0]), columns=tuple(col.name for col in self.csv_structure.columns))
-        self.np_structure.np2pd(dataframe, self.get_ndarray(self.np_structure.portion))
-        for col_name, dtype in self.csv_structure.dtype.items():
+        dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, self.data.shape[0]), columns=tuple(col.name for col in self.fields.specs))
+        self.columns.np2pd(dataframe, self.get_ndarray(self.columns.portion))
+        for col_name, dtype in self.fields.dtype.items():
             try:
                 dataframe[col_name] = dataframe[col_name].astype(dtype)
             except (TypeError, ValueError):
@@ -556,15 +634,15 @@ class DataProvider:
 
     def write_as_csv(self, file: io.TextIOBase):
         dataframe = self.get_as_dataframe()
-        for column in self.csv_structure.columns:
+        for column in self.fields.specs:
             dataframe[column.name] = dataframe[column.name].fillna(column.default)
         dataframe.to_csv(file, header=False, index=False)
 
     def create_empty_data(self, length: int):
-        self.data = np.ndarray(shape=(length, len(self.np_structure.columns)), dtype=self.np_structure.dtype)
+        self.data = np.ndarray(shape=(length, len(self.columns.specs)), dtype=self.columns.dtype)
 
     def create_nan_data(self, length: int):
-        self.data = np.full(shape=(length, len(self.np_structure.columns)), fill_value=np.nan, dtype=self.np_structure.dtype)
+        self.data = np.full(shape=(length, len(self.columns.specs)), fill_value=np.nan, dtype=self.columns.dtype)
 
 
 class KnownStdinProvider(DataProvider):
@@ -580,18 +658,18 @@ class KnownStdinProvider(DataProvider):
         self.logger.log(logging.INFO, "Reading known matches from stdin...")
         dataframe = pandas.read_csv(
             sys.stdin,
-            dtype=self.csv_structure.dtype,
+            dtype=self.fields.dtype,
             header=None,
-            names=self.csv_structure.known,
+            names=self.fields.known,
             true_values=("True",),
             na_values=('',),
             keep_default_na=False,
         )
-        for column in self.csv_structure.columns:
-            if column.name in dataframe:
-                dataframe[column.name] = dataframe[column.name].fillna(column.default).astype(column.dtype)
-        ndarray: np.ndarray = np.ndarray(shape=(dataframe.shape[0], len(self.np_structure.columns)), dtype=self.np_structure.dtype)
-        self.np_structure.pd2np(dataframe, ndarray)
+        for field in self.fields.specs:
+            if field.name in dataframe:
+                dataframe[field.name] = dataframe[field.name].fillna(field.default).astype(field.dtype)
+        ndarray: np.ndarray = np.ndarray(shape=(dataframe.shape[0], len(self.columns.specs)), dtype=self.columns.dtype)
+        self.columns.pd2np(dataframe, ndarray)
         self.data = ndarray
 
 
@@ -635,18 +713,18 @@ class CorpusProvider(DataProvider):
                 chunk_queue.task_done()
             else:
                 self.logger.log(logging.DEBUG, "Start converting data #{i:d} on thread {id:d}".format(id=thread_index, i=i))
-                for column in self.csv_structure.columns:
+                for column in self.fields.specs:
                     chunk[column.name] = chunk[column.name].fillna(column.default).astype(column.dtype)
-                self.np_structure.pd2np(chunk, memmap[i * chunksize:i * chunksize + chunk.shape[0], :])
+                self.columns.pd2np(chunk, memmap[i * chunksize:i * chunksize + chunk.shape[0], :])
                 chunk_queue.task_done()
                 self.logger.log(logging.INFO, "Thread {id:d} is done with conversion of chunk #{i:d}".format(id=thread_index, i=i))
 
     def load_from_csv_file(self) -> np.ndarray:
         self.logger.log(logging.INFO, "Importing Matches.csv...")
         self.logger.log(logging.INFO, "Calculating the amount of matches in Matches.csv to initialize matrix of appropriate size...")
-        match_count = self.csv_structure.count_matches()
+        match_count = self.fields.count_matches()
         with tempfile.NamedTemporaryFile(dir=self.data_path) as f:
-            ndarray: np.ndarray = np.memmap(f, mode="w+", shape=(match_count, len(self.np_structure.columns)), dtype=self.np_structure.dtype)
+            ndarray: np.ndarray = np.memmap(f, mode="w+", shape=(match_count, len(self.columns.specs)), dtype=self.columns.dtype)
         chunksize = 1 << 13
         total_chunk_amount = math.ceil(match_count / chunksize)
         cpu_count = os.cpu_count() or 1
@@ -661,7 +739,7 @@ class CorpusProvider(DataProvider):
         self.logger.log(logging.INFO, "Begin reading Matches.csv...")
         for i, chunk in enumerate(pandas.read_csv(
             "{path}/Matches.csv".format(path=self.data_path),
-            dtype=self.csv_structure.dtype,
+            dtype=self.fields.dtype,
             header=0,
             true_values=("True",),
             na_values=('',),

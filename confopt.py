@@ -103,8 +103,8 @@ class ConfigurationOptimizer:
         }
 
     def get_loss(self, config: ApplicationConfiguration) -> float:
-        nn = tfnn.TrainableNeuralNetwork(self.data_provider, config)
-        nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)))
+        nn = tfnn.TrainableGenerator(self.data_provider.fields, self.data_provider.columns, config)
+        nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)), self.data_provider)
         return 1 - nn.get_best_seen_evaluation_accuracy()
 
     def optimize(self):

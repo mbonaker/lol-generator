@@ -7,17 +7,28 @@ import numpy as np
 import yaml
 
 import dataprovider
-from nn import NeuralNetwork
+from nn import Generator
 from config import ApplicationConfiguration
 
 
 def handle_all_inputs(config: ApplicationConfiguration):
+    logger = logging.getLogger("generator")
 
     if config.should_train:
         corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True)
         import tfnn
-        nn = tfnn.TrainableNeuralNetwork(corpus, config)
-        nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)))
+        nn = tfnn.TrainableGenerator(corpus.fields, corpus.columns, config)
+        if config.try_consistently:
+            done = False
+            while not done:
+                try:
+                    nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)), corpus)
+                    done = True
+                except:
+                    logger.exception("Error during training, but try consistently...", )
+                    done = False
+        else:
+            nn.train("../data/generator_state_{label:s}.npz".format(label=str(config)), corpus)
 
     if config.shoud_optimize_hyperparameters:
         corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True)
@@ -29,10 +40,10 @@ def handle_all_inputs(config: ApplicationConfiguration):
         in_data = dataprovider.KnownStdinProvider("../data", np.dtype(np.float16), True)
         out_data = dataprovider.DataProvider("../data", np.dtype(np.float16), dataprovider.PORTION_INTERESTING - dataprovider.PORTION_WIN, True)
         out_data.create_nan_data(in_data.known.shape[0])
-        nn = NeuralNetwork(in_data, config)
+        nn = Generator(in_data.fields, in_data.columns, config)
         out_data.known = in_data.known
         nn.load_weights("../data/generator_state_{label:s}.npz".format(label=str(config)))
-        out_data.unknown_without_win = nn.predict()
+        out_data.unknown_without_win = nn.predict(in_data)
 
         out_data.write_as_csv(sys.stdout)
 
