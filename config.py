@@ -329,6 +329,11 @@ class ApplicationConfiguration:
             help="The name of this instance running (used for tensorboard).",
         )
         argument_parser.add_argument(
+            '--try-consistently',
+            action='store_true',
+            help="If an exception occurs, try again! Use this e.g. to ensure the PC is working if you are leaving it alone to compute for a long time.",
+        )
+        argument_parser.add_argument(
             '--ic',
             type=IGNORED_COLUMNS.str_to_value,
             help="Columns to ignore",
@@ -352,6 +357,11 @@ class ApplicationConfiguration:
             '--opti', '--optim',
             type=OPTIMIZER.str_to_value,
             help=OPTIMIZER.name,
+        )
+        argument_parser.add_argument(
+            '--af', '--activation',
+            type=ACTIVATION.str_to_value,
+            help=ACTIVATION.name,
         )
         argument_parser.add_argument(
             '--evtest',
@@ -400,6 +410,10 @@ class ApplicationConfiguration:
     @property
     def should_read_stdin(self) -> bool:
         return self.arguments.stdin
+
+    @property
+    def try_consistently(self) -> bool:
+        return self.arguments.try_consistently
 
     @property
     def should_train(self) -> bool:
