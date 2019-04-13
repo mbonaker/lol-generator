@@ -14,7 +14,23 @@ from config import ApplicationConfiguration
 def handle_all_inputs(config: ApplicationConfiguration):
     logger = logging.getLogger("generator")
 
-    if config.should_train:
+    if config.should_train_adversarial:
+        corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True)
+        import tfnn
+        generator = tfnn.TrainableGenerator(corpus.fields, corpus.columns, config)
+        discriminator = tfnn.TrainableDiscriminator(corpus.fields, corpus.columns, config)
+        if config.try_consistently:
+            done = False
+            while not done:
+                try:
+                    discriminator.train("../data/generator_state_{label:s}.npz".format(label=str(config)), corpus, generator)
+                    done = True
+                except:
+                    logger.exception("Error during training, but try consistently...", )
+                    done = False
+        else:
+            discriminator.train("../data/generator_state_{label:s}.npz".format(label=str(config)), corpus, generator)
+    elif config.should_train:
         corpus = dataprovider.CorpusProvider("../data", np.dtype(np.float16), known_data_is_optional=True)
         import tfnn
         nn = tfnn.TrainableGenerator(corpus.fields, corpus.columns, config)

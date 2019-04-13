@@ -268,17 +268,22 @@ class StopCriteria(StopCriterion):
 
 
 LEARNING_RATE = ConfigurationOption('lr', 'Learning Rate', True, lambda x: "{:.0e}".format(x), float)
+D_LEARNING_RATE = ConfigurationOption('dlr', 'Learning Rate of Discriminator', True, lambda x: "{:.0e}".format(x), float)
 LABEL = ConfigurationOption('label', 'Label', False, lambda x: 'none' if x is None else x, str)
 DTYPE = ConfigurationOption('dt', 'DType', True, lambda x: x.str, np.dtype)
 OPTIMIZER = ConfigurationOption('opti', 'Optimizer', True, optimizer_to_str, str_to_optimizer)
+D_OPTIMIZER = ConfigurationOption('dopti', 'Optimizer of Discriminator', True, optimizer_to_str, str_to_optimizer)
 BATCH_SIZE = ConfigurationOption('bs', 'Batch Size', True, lambda x: "{:.1e}".format(x), suffixed_si_to_number)
 SEED = ConfigurationOption('seed', 'Seed', True, str, int)
 IGNORED_COLUMNS = ConfigurationOption('ic', 'Ignored Columns', False, ignored_columns_to_str, str_to_ignored_columns)
 HIDDEN_LAYERS = ConfigurationOption('hl', 'Hidden Layer Structure', True, lambda x: ":".join(str(n) for n in x), lambda x: list(int(n) for n in x.split(":")) if x else [])
+D_HIDDEN_LAYERS = ConfigurationOption('dhl', 'Hidden Layer Structure of Discriminator', True, lambda x: ":".join(str(n) for n in x), lambda x: list(int(n) for n in x.split(":")) if x else [])
 ACTIVATION = ConfigurationOption('af', 'Activation Function', True, activation_function_to_str, str_to_activation_function)
+D_ACTIVATION = ConfigurationOption('daf', 'Discriminator Activation Function', True, activation_function_to_str, str_to_activation_function)
 TEST_DATA_AMOUNT = ConfigurationOption('td', 'Test Data Amount', True, str, suffixed_si_to_number)
 VALIDATION_DATA_AMOUNT = ConfigurationOption('vd', 'Validation Data Amount', True, str, suffixed_si_to_number)
 LAMBDA = ConfigurationOption('lambda', 'Lambda for L2-Regularization', True, str, float)
+D_LAMBDA = ConfigurationOption('dlambda', 'Lambda for L2-Regularization of the Discriminator', True, str, float)
 STOP_CRITERIA = ConfigurationOption('stop', 'Stop Criteria', True, str, StopCriteria)
 SAMPLES_PER_TEST_EVALUATION = ConfigurationOption('evtest', 'Samples per Test Evaluation', True, str, suffixed_si_to_number)
 SAMPLES_PER_TRAIN_EVALUATION = ConfigurationOption('evtrain', 'Samples per Train Evaluation', True, str, suffixed_si_to_number)
@@ -286,17 +291,22 @@ CODE_VERSION = ConfigurationOption('v', 'Code Version', True, str, int)
 
 OPTIONS = (
     LEARNING_RATE,
+    D_LEARNING_RATE,
     LABEL,
     DTYPE,
     OPTIMIZER,
+    D_OPTIMIZER,
     BATCH_SIZE,
     SEED,
     IGNORED_COLUMNS,
     HIDDEN_LAYERS,
+    D_HIDDEN_LAYERS,
     ACTIVATION,
+    D_ACTIVATION,
     TEST_DATA_AMOUNT,
     VALIDATION_DATA_AMOUNT,
     LAMBDA,
+    D_LAMBDA,
     STOP_CRITERIA,
     SAMPLES_PER_TEST_EVALUATION,
     SAMPLES_PER_TRAIN_EVALUATION,
@@ -317,6 +327,11 @@ class ApplicationConfiguration:
             '-t', '--train',
             action='store_true',
             help="If this flag is set, the corpus will be used to train the neural network.",
+        )
+        argument_parser.add_argument(
+            '-g', '--gan',
+            action='store_true',
+            help="If this flag is set, generative adversarial training will be used to train the neural network.",
         )
         argument_parser.add_argument(
             '-o', '--hyperopt',
@@ -344,6 +359,11 @@ class ApplicationConfiguration:
             help=HIDDEN_LAYERS.name,
         )
         argument_parser.add_argument(
+            '--dhl',
+            type=D_HIDDEN_LAYERS.str_to_value,
+            help=D_HIDDEN_LAYERS.name,
+        )
+        argument_parser.add_argument(
             '--stop',
             type=STOP_CRITERIA.str_to_value,
             help=STOP_CRITERIA.name,
@@ -359,9 +379,14 @@ class ApplicationConfiguration:
             help=OPTIMIZER.name,
         )
         argument_parser.add_argument(
-            '--af', '--activation',
-            type=ACTIVATION.str_to_value,
-            help=ACTIVATION.name,
+            '--dopti', '--doptim',
+            type=D_OPTIMIZER.str_to_value,
+            help=D_OPTIMIZER.name,
+        )
+        argument_parser.add_argument(
+            '--daf', '--dactivation',
+            type=D_ACTIVATION.str_to_value,
+            help=D_ACTIVATION.name,
         )
         argument_parser.add_argument(
             '--evtest',
@@ -379,18 +404,33 @@ class ApplicationConfiguration:
             help=LAMBDA.name,
         )
         argument_parser.add_argument(
+            '-dλ', '--dlambda',
+            type=D_LAMBDA.str_to_value,
+            help=D_LAMBDA.name,
+        )
+        argument_parser.add_argument(
             '--lr',
             type=LEARNING_RATE.str_to_value,
             help=LEARNING_RATE.name,
         )
+        argument_parser.add_argument(
+            '--dlr',
+            type=D_LEARNING_RATE.str_to_value,
+            help=D_LEARNING_RATE.name,
+        )
         self.arguments = argument_parser.parse_args(str_arguments)
         self.default_options = {
             LAMBDA: 0,
+            D_LAMBDA: 0,
             DTYPE: 'float16',
             HIDDEN_LAYERS: [256],
+            D_HIDDEN_LAYERS: [256],
             LEARNING_RATE: 0.001,
+            D_LEARNING_RATE: 0.001,
             OPTIMIZER: 'adam',
+            D_OPTIMIZER: 'adam',
             ACTIVATION: 'leaky-relu',
+            D_ACTIVATION: 'leaky-relu',
             BATCH_SIZE: 2048,
             SEED: 0,
             TEST_DATA_AMOUNT: 1 << 14,
@@ -399,7 +439,7 @@ class ApplicationConfiguration:
             IGNORED_COLUMNS: '',
             SAMPLES_PER_TEST_EVALUATION: 500000,
             SAMPLES_PER_TRAIN_EVALUATION: 100000,
-            CODE_VERSION: 12,
+            CODE_VERSION: 19,
         }
         self.option_dict = {}
 
@@ -418,6 +458,10 @@ class ApplicationConfiguration:
     @property
     def should_train(self) -> bool:
         return self.arguments.train
+
+    @property
+    def should_train_adversarial(self) -> bool:
+        return self.arguments.gan
 
     @property
     def test_data_amount(self) -> int:
@@ -440,6 +484,10 @@ class ApplicationConfiguration:
         return self.get_value(HIDDEN_LAYERS)
 
     @property
+    def d_hidden_layer_structure(self) -> Tuple[int, ...]:
+        return self.get_value(D_HIDDEN_LAYERS)
+
+    @property
     def seed(self) -> int:
         return self.get_value(SEED)
 
@@ -450,6 +498,10 @@ class ApplicationConfiguration:
     @property
     def lambda_(self) -> float:
         return self.get_value(LAMBDA)
+
+    @property
+    def d_lambda_(self) -> float:
+        return self.get_value(D_LAMBDA)
 
     @property
     def label(self) -> str:
@@ -468,6 +520,10 @@ class ApplicationConfiguration:
         return self.get_value(OPTIMIZER)
 
     @property
+    def d_optimizer(self) -> Callable[[float], Any]:
+        return self.get_value(D_OPTIMIZER)
+
+    @property
     def samples_per_test_evaluation(self) -> int:
         return self.get_value(SAMPLES_PER_TEST_EVALUATION)
 
@@ -480,8 +536,16 @@ class ApplicationConfiguration:
         return self.get_value(LEARNING_RATE)
 
     @property
+    def d_learning_rate(self) -> float:
+        return self.get_value(D_LEARNING_RATE)
+
+    @property
     def activation_function(self):
         return self.get_value(ACTIVATION)
+
+    @property
+    def d_activation_function(self):
+        return self.get_value(D_ACTIVATION)
 
     def set(self, option: ConfigurationOption, value):
         self.option_dict[option] = value
