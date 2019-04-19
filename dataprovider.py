@@ -46,6 +46,9 @@ class FieldSpecification:
             yield "participants.{:d}.championId".format(participant_id)
             for spell_id in (1, 2):
                 yield "participants.{:d}.spell{:d}Id".format(participant_id, spell_id)
+        for team_id in (0, 1):
+            for ban_id in (0, 1, 2, 3, 4):
+                yield "teams.{:d}.bans.{:d}.championId".format(team_id, ban_id)
 
     @staticmethod
     def from_dict(source: Dict[str, str], known_data_optional: bool = False):
@@ -481,14 +484,19 @@ class ColumnStructure:
     def shuffle_participants(self, data: np.ndarray, random_state: np.random.RandomState) -> np.ndarray:
         shuffled_data = np.ndarray(data.shape, data.dtype)
         shuffled_data[:, :] = data
-        for cont_pid, rand_pid in enumerate(list(random_state.permutation(5)) + list(random_state.permutation(5) + 5)):
-            if cont_pid == rand_pid:
-                continue
-            cont_key_part = "participants.{pid:d}.".format(pid=cont_pid)
-            rand_key_part = "participants.{pid:d}.".format(pid=rand_pid)
-            cont_cids = np.where([col.name.startswith(cont_key_part) for col in self.specs])
-            rand_cids = np.where([col.name.startswith(rand_key_part) for col in self.specs])
-            shuffled_data[:, cont_cids] = data[:, rand_cids]
+        for tid in (0, 1):
+            for cont_member_id, rand_member_id in enumerate(list(random_state.permutation(5))):
+                if cont_member_id == rand_member_id:
+                    continue
+                cont_pid = tid * 5 + cont_member_id
+                rand_pid = tid * 5 + rand_member_id
+                cont_key_part = "participants.{pid:d}.".format(pid=cont_pid)
+                cont_ban_key_part = "teams.{tid:d}.bans.{mid:d}.".format(tid=tid, mid=cont_member_id)
+                rand_key_part = "participants.{pid:d}.".format(pid=rand_pid)
+                rand_ban_key_part = "teams.{tid:d}.bans.{mid:d}.".format(tid=tid, mid=rand_member_id)
+                cont_cids = np.where([col.name.startswith(cont_key_part) or col.name.startswith(cont_ban_key_part) for col in self.specs])
+                rand_cids = np.where([col.name.startswith(rand_key_part) or col.name.startswith(rand_ban_key_part) for col in self.specs])
+                shuffled_data[:, cont_cids] = data[:, rand_cids]
         return shuffled_data
 
     def column_indices_from_names(self, names: Iterable[str]) -> List[int]:

@@ -146,22 +146,6 @@ class TrainableGenerator(Generator):
                 labels['onehot_{:s}'.format(key)] = ys
                 accuracies['onehot_{:s}'.format(key)] = tf.cast(tf.equal(tf.argmax(logit_slice, 1, output_type=tf.int32), tf.argmax(ys, 1, output_type=tf.int32)), self.config.dtype)
                 accuracy_amount += 1
-        for team_id in (0, 1):
-            ban_slices = []
-            for ban_id in range(5):
-                ban_name = "teams.{tid:d}.bans.{bid:d}.championId".format(tid=team_id, bid=ban_id)
-                ban_slice = self.unknown_column_structure.field_name_to_column_slice(ban_name)
-                ban_slices.append(ban_slice)
-                logit_slice = logit[:, ban_slice]
-                ys = y[:, ban_slice]
-                accuracies["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = tf.cast(tf.equal(tf.argmax(logit_slice, 1, output_type=tf.int32), tf.argmax(ys, 1, output_type=tf.int32)), self.config.dtype)
-                accuracy_amount += 1
-            logit_slice = sum(logit[:, ban_slice] for ban_slice in ban_slices)
-            ys = sum(y[:, ban_slice] for ban_slice in ban_slices)
-            loss = tf.cast(tf.losses.hinge_loss(labels=ys, logits=logit_slice, reduction=tf.losses.Reduction.MEAN), self.config.dtype)
-            # loss = tf.cast(tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=ys, logits=logit_slice)), self.config.dtype)
-            losses["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = loss
-            labels["onehot_teams.{tid:d}.bans.X.championId".format(tid=team_id)] = ys
         if self.config.lambda_:
             regularization = sum(tf.nn.l2_loss(w) for w, _ in self.layers if w is not None) * self.config.lambda_
             losses["regularization"] = regularization
