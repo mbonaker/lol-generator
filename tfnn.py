@@ -279,7 +279,7 @@ class TrainableGenerator(Generator):
                 samples = trained_batches * self.config.batch_size
                 samples_since_test_evaluation += self.config.batch_size
                 samples_since_train_evaluation += self.config.batch_size
-                do_test_eval = samples == 0 or samples_since_train_evaluation >= self.config.samples_per_train_evaluation
+                do_test_eval = samples == 0 or samples_since_test_evaluation >= self.config.samples_per_test_evaluation
                 do_train_eval = do_test_eval or samples_since_train_evaluation >= self.config.samples_per_train_evaluation
 
                 run_parameters = {
@@ -362,8 +362,9 @@ class TrainableDiscriminator(Discriminator):
         return train_summaries, test_summaries
 
     def make_metrics(self, logit: tf.Tensor, y: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
-        accuracy = tf.reduce_mean(tf.cast(tf.math.equal(tf.math.greater(logit, 0), tf.math.greater(y, 0.5)), self.config.dtype), axis=1)
-        loss = tf.reduce_mean(tf.abs(tf.nn.sigmoid(logit) - y))
+        accuracy = tf.reduce_mean(tf.cast(tf.math.equal(tf.math.greater(logit, 0), tf.math.greater(y, 0.5)), self.config.dtype), axis=1, name='d_accuracies')
+        loss = tf.cast(tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=logit, name='d_loss'), self.config.dtype)
+        # loss = tf.reduce_mean((tf.nn.sigmoid(logit) - y) ** 2, name='d_loss')
         return loss, accuracy
 
     def make_layers(self, n_input: int, n_output: int) -> List[Tuple[tf.Variable, tf.Variable]]:
