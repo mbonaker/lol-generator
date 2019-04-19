@@ -1,3 +1,4 @@
+import functools
 import itertools
 import logging
 import io
@@ -23,7 +24,7 @@ class TrainableGenerator(Generator):
     def __init__(self, field_structure: dp.FieldStructure, column_structure: dp.ColumnStructure, config: ApplicationConfiguration):
         super().__init__(field_structure, column_structure, config)
 
-        self.unknown_field_structure = dp.FieldStructure(field_structure.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
+        self.unknown_field_structure = dp.FieldStructure.make(field_structure.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
         self.unknown_column_structure = dp.ColumnStructure(self.unknown_field_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
 
         self.random_state = np.random.RandomState(config.seed)
@@ -343,7 +344,7 @@ class TrainableDiscriminator(Discriminator):
     def __init__(self, field_structure: dp.FieldStructure, column_structure: dp.ColumnStructure, config: ApplicationConfiguration):
         super().__init__(field_structure, column_structure, config)
 
-        self.unknown_field_structure = dp.FieldStructure(field_structure.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
+        self.unknown_field_structure = dp.FieldStructure.make(field_structure.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
         self.unknown_column_structure = dp.ColumnStructure(self.unknown_field_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
 
         self.random_state = np.random.RandomState(config.seed)
@@ -438,7 +439,7 @@ class TrainableDiscriminator(Discriminator):
     def parameters(self):
         return [w for w, _ in self.layers if w is not None] + [b for _, b in self.layers if b is not None]
 
-    def make_minimizer(self, d_loss: tf.Tensor, d_prediction: tf.Tensor, generator: TrainableGenerator) -> Tuple[tf.Operation, tf.Variable, tf.Operation, tf.Variable]:
+    def make_minimizer(self, d_loss: tf.Tensor, logit_fake: tf.Tensor, generator: TrainableGenerator) -> Tuple[tf.Operation, tf.Variable, tf.Operation, tf.Variable]:
         d_step = tf.Variable(0, trainable=False)
         # grads_and_vars is a list of tuples (gradient, variable)
         d_parameters = self.parameters
@@ -450,10 +451,10 @@ class TrainableDiscriminator(Discriminator):
         g_step = tf.Variable(0, trainable=False)
         # grads_and_vars is a list of tuples (gradient, variable)
         g_parameters = generator.parameters
-        g_grads_and_vars = self.config.optimizer(self.config.learning_rate).compute_gradients(d_prediction, var_list=g_parameters)
+        g_grads_and_vars = self.config.g_optimizer(self.config.g_learning_rate).compute_gradients(-logit_fake, var_list=g_parameters)
         g_capped_grads_and_vars = [(tf.clip_by_value(gv[0], -5., 5.), gv[1]) for gv in g_grads_and_vars]
         # apply the capped gradients.
-        g_minimizer = self.config.optimizer(self.config.learning_rate).apply_gradients(g_capped_grads_and_vars, global_step=g_step)
+        g_minimizer = self.config.g_optimizer(self.config.g_learning_rate).apply_gradients(g_capped_grads_and_vars, global_step=g_step)
         return d_minimizer, d_step, g_minimizer, g_step
 
     def train(self, file_name: str, data: dp.DataProvider, generator: TrainableGenerator):
@@ -470,15 +471,15 @@ class TrainableDiscriminator(Discriminator):
         d_targets = tf.concat((d_targets_real, d_targets_fake), axis=0)
         g_loss, g_accuracies = generator.make_metrics(g_logit, g_targets)
         d_loss, d_accuracies = self.make_metrics(d_logit, d_targets)
-        g_accuracy = tf.reduce_mean(g_accuracies)
-        d_accuracy = tf.reduce_mean(d_accuracies)
+        g_accuracy = tf.reduce_mean(g_accuracies, name='g_accuracy')
+        d_accuracy = tf.reduce_mean(d_accuracies, name='d_accuracy')
         d_predictions_real = self.make_output(logit_real)
         d_predictions_fake = self.make_output(logit_fake)
         d_predictions = self.make_output(d_logit)
         g_train_summary, g_test_summary = generator.make_summaries(g_predictions, g_targets, g_accuracy)
         d_train_summary, d_test_summary = self.make_summaries(d_predictions, d_predictions_real, d_predictions_fake, d_accuracy)
         g_minimizer_original, g_step_original = generator.make_minimizer(g_loss)
-        d_minimizer, d_step, g_minimizer_adversarial, g_step_adversarial = self.make_minimizer(d_loss, d_predictions, generator)
+        d_minimizer, d_step, g_minimizer_adversarial, g_step_adversarial = self.make_minimizer(d_loss, logit_fake, generator)
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         with tf.Session(config=config) as session:
@@ -488,25 +489,27 @@ class TrainableDiscriminator(Discriminator):
             self.logger.log(logging.DEBUG, "Start the file writer for tensorboard")
             tf_writer = tf.summary.FileWriter(self.config.tensorboard_path, session.graph, flush_secs=10)
 
-            trained_batches = 0
             samples_since_test_evaluation = 0
             samples_since_train_evaluation = 0
+            samples = 0
+            d_last_accuracy = None
+            trained_batches = 0
             self.logger.log(logging.DEBUG, "Start training loop")
             while True:
-                samples = trained_batches * self.config.batch_size
-                samples_since_test_evaluation += self.config.batch_size
-                samples_since_train_evaluation += self.config.batch_size
-                do_test_eval = samples == 0 or samples_since_train_evaluation >= self.config.samples_per_train_evaluation
+                do_test_eval = samples == 0 or samples_since_test_evaluation >= self.config.samples_per_test_evaluation
                 do_train_eval = do_test_eval or samples_since_train_evaluation >= self.config.samples_per_train_evaluation
+                train_discriminator = d_last_accuracy is None or d_last_accuracy < 0.98
 
-                run_parameters = {
-                    'g_minimizer_original': g_minimizer_original,
-                    'g_step_original': g_step_original,
-                    'g_minimizer_adversarial': g_minimizer_adversarial,
-                    'g_step_adversarial': g_step_adversarial,
-                    'd_minimizer': d_minimizer,
-                    'd_step': d_step,
-                }
+                run_parameters = dict({
+                    # 'g_minimizer_original': g_minimizer_original,
+                    # 'g_step_original': g_step_original,
+                })
+                # if train_discriminator:
+                run_parameters['d_minimizer'] = d_minimizer
+                run_parameters['d_step'] = d_step
+                # else:
+                run_parameters['g_minimizer_adversarial'] = g_minimizer_adversarial
+                run_parameters['g_step_adversarial'] = g_step_adversarial
                 if do_train_eval:
                     self.logger.log(logging.DEBUG, "Evaluate the network on training data...")
                     run_parameters['d_accuracy'] = d_accuracy
@@ -516,10 +519,13 @@ class TrainableDiscriminator(Discriminator):
 
                 self.logger.log(logging.DEBUG, "Do one training step...")
                 train_result = session.run(run_parameters, feed_dict={iterator_handle: train_handle})
-                trained_batches = train_result['d_step']
+                trained_batches += 1
+                samples = trained_batches * self.config.batch_size
+                samples_since_test_evaluation += self.config.batch_size
+                samples_since_train_evaluation += self.config.batch_size
 
                 if do_train_eval:
-                    samples_since_train_evaluation -= self.config.samples_per_train_evaluation
+                    samples_since_train_evaluation = 0
                     tf_writer.add_summary(train_result['d_summary'], samples)
                     tf_writer.add_summary(train_result['g_summary'], samples)
                     self.logger.log(logging.INFO, "Samples: {samples:.4e} | D-Accuracy: {d_accuracy:.4e} | G-Accuracy: {g_accuracy:.4e} | TRAIN".format(
@@ -527,8 +533,9 @@ class TrainableDiscriminator(Discriminator):
                         d_accuracy=train_result['d_accuracy'],
                         g_accuracy=train_result['g_accuracy'],
                     ))
+                    d_last_accuracy = train_result['d_accuracy']
                 if do_test_eval:
-                    samples_since_test_evaluation -= self.config.samples_per_test_evaluation
+                    samples_since_test_evaluation = 0
                     test_result = session.run({
                         'd_accuracy': d_accuracy,
                         'd_summary': d_test_summary,

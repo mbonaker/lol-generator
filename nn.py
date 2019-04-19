@@ -46,15 +46,14 @@ class NeuralNetwork:
 
 
 class Generator(NeuralNetwork):
-    def predict(self, data: dp.DataProvider) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         if data.columns != self.column_structure:
             raise ValueError("Wrong data column structure")
         if data.fields != self.field_structure:
             raise ValueError("Wrong data field structure")
-        unknown_csv_structure = dp.FieldStructure(data.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_csv_structure = dp.FieldStructure.make(self.field_structure.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
         unknown_data_structure = dp.ColumnStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
 
-        x = data.get_ndarray(dp.PORTION_KNOWN)
         self.logger.log(logging.DEBUG, "Predict for known data of shape {shape!r}.".format(shape=x.shape))
 
         def relu(v: np.ndarray) -> np.ndarray:

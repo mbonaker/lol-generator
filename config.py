@@ -268,10 +268,12 @@ class StopCriteria(StopCriterion):
 
 
 LEARNING_RATE = ConfigurationOption('lr', 'Learning Rate', True, lambda x: "{:.0e}".format(x), float)
+G_LEARNING_RATE = ConfigurationOption('glr', 'Learning Rate of Generator (adversarial)', True, lambda x: "{:.0e}".format(x), float)
 D_LEARNING_RATE = ConfigurationOption('dlr', 'Learning Rate of Discriminator', True, lambda x: "{:.0e}".format(x), float)
 LABEL = ConfigurationOption('label', 'Label', False, lambda x: 'none' if x is None else x, str)
 DTYPE = ConfigurationOption('dt', 'DType', True, lambda x: x.str, np.dtype)
 OPTIMIZER = ConfigurationOption('opti', 'Optimizer', True, optimizer_to_str, str_to_optimizer)
+G_OPTIMIZER = ConfigurationOption('gopti', 'Optimizer of Generator (adversarial)', True, optimizer_to_str, str_to_optimizer)
 D_OPTIMIZER = ConfigurationOption('dopti', 'Optimizer of Discriminator', True, optimizer_to_str, str_to_optimizer)
 BATCH_SIZE = ConfigurationOption('bs', 'Batch Size', True, lambda x: "{:.1e}".format(x), suffixed_si_to_number)
 SEED = ConfigurationOption('seed', 'Seed', True, str, int)
@@ -291,10 +293,12 @@ CODE_VERSION = ConfigurationOption('v', 'Code Version', True, str, int)
 
 OPTIONS = (
     LEARNING_RATE,
+    G_LEARNING_RATE,
     D_LEARNING_RATE,
     LABEL,
     DTYPE,
     OPTIMIZER,
+    G_OPTIMIZER,
     D_OPTIMIZER,
     BATCH_SIZE,
     SEED,
@@ -379,6 +383,11 @@ class ApplicationConfiguration:
             help=OPTIMIZER.name,
         )
         argument_parser.add_argument(
+            '--gopti', '--goptim',
+            type=G_OPTIMIZER.str_to_value,
+            help=G_OPTIMIZER.name,
+        )
+        argument_parser.add_argument(
             '--dopti', '--doptim',
             type=D_OPTIMIZER.str_to_value,
             help=D_OPTIMIZER.name,
@@ -414,6 +423,11 @@ class ApplicationConfiguration:
             help=LEARNING_RATE.name,
         )
         argument_parser.add_argument(
+            '--glr',
+            type=G_LEARNING_RATE.str_to_value,
+            help=G_LEARNING_RATE.name,
+        )
+        argument_parser.add_argument(
             '--dlr',
             type=D_LEARNING_RATE.str_to_value,
             help=D_LEARNING_RATE.name,
@@ -426,8 +440,10 @@ class ApplicationConfiguration:
             HIDDEN_LAYERS: [256],
             D_HIDDEN_LAYERS: [256],
             LEARNING_RATE: 0.001,
+            G_LEARNING_RATE: 0.001,
             D_LEARNING_RATE: 0.001,
             OPTIMIZER: 'adam',
+            G_OPTIMIZER: 'adam',
             D_OPTIMIZER: 'adam',
             ACTIVATION: 'leaky-relu',
             D_ACTIVATION: 'leaky-relu',
@@ -520,6 +536,10 @@ class ApplicationConfiguration:
         return self.get_value(OPTIMIZER)
 
     @property
+    def g_optimizer(self) -> Callable[[float], Any]:
+        return self.get_value(G_OPTIMIZER)
+
+    @property
     def d_optimizer(self) -> Callable[[float], Any]:
         return self.get_value(D_OPTIMIZER)
 
@@ -534,6 +554,10 @@ class ApplicationConfiguration:
     @property
     def learning_rate(self) -> float:
         return self.get_value(LEARNING_RATE)
+
+    @property
+    def g_learning_rate(self) -> float:
+        return self.get_value(G_LEARNING_RATE)
 
     @property
     def d_learning_rate(self) -> float:

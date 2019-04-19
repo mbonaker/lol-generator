@@ -1,4 +1,5 @@
 import csv
+import functools
 import io
 import math
 import queue
@@ -146,6 +147,11 @@ class FieldSpecification:
 
 
 class FieldStructure:
+    @staticmethod
+    @functools.lru_cache(maxsize=10)
+    def make(data_path: str, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
+        return FieldStructure(data_path, portion, known_data_optional)
+
     def __init__(self, data_path: str, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
         self.data_path = data_path
         self.logger = logging.getLogger(__name__)
@@ -562,7 +568,7 @@ class DataProvider:
     def __init__(self, data_path: str, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_is_optional: bool = False):
         self.logger = logging.getLogger(__name__)
         self.data_path = data_path
-        self.fields = FieldStructure(data_path, portion, known_data_is_optional)
+        self.fields = FieldStructure.make(data_path, portion, known_data_is_optional)
         self.columns = ColumnStructure(self.fields, dtype, portion, known_data_is_optional)
         self.data: Optional[np.ndarray] = None
 
