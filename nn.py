@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from typing import TextIO
 
 import numpy as np
@@ -46,31 +47,72 @@ class NeuralNetwork:
 
 
 class Generator(NeuralNetwork):
-    def predict(self, x: np.ndarray) -> np.ndarray:
-        if data.columns != self.column_structure:
-            raise ValueError("Wrong data column structure")
-        if data.fields != self.field_structure:
-            raise ValueError("Wrong data field structure")
-        unknown_csv_structure = dp.FieldStructure.make(self.field_structure.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
-        unknown_data_structure = dp.ColumnStructure(unknown_csv_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN, True)
 
+    def __init__(self, field_structure: dp.FieldStructure, column_structure: dp.ColumnStructure, config: ApplicationConfiguration):
+        super().__init__(field_structure, column_structure, config)
+        unknown_field_structure = dp.FieldStructure.make(self.field_structure.data_path, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        unknown_column_structure = dp.ColumnStructure.make(unknown_field_structure, self.config.dtype, dp.PORTION_UNKNOWN - dp.PORTION_WIN)
+        self.handling_slices = list(unknown_column_structure.generate_handling_slices(self.config.ignored_columns))
+
+    def predict(self, x: np.ndarray, alpha=0.2) -> np.ndarray:
         self.logger.log(logging.DEBUG, "Predict for known data of shape {shape!r}.".format(shape=x.shape))
+        time_start = time.perf_counter()
 
-        def relu(v: np.ndarray) -> np.ndarray:
-            return np.maximum(v, 0)
+        def leaky_relu(v: np.ndarray) -> np.ndarray:
+            return np.where(v > 0, v, v * alpha)
 
         x = x.T
         for layer, biases in zip(self.weights[:-1], self.biases[:-1]):
-            x = relu(layer.T @ x + biases)
+            x = leaky_relu(layer.T @ x + biases)
         logit = (self.weights[-1].T @ x + self.biases[-1]).T
 
-        predictions = np.ndarray(shape=logit.shape, dtype=self.config.dtype)
-        for data_slice, handling in unknown_data_structure.generate_handling_slices(self.config.ignored_columns):
-            y_pred = logit[:, data_slice]
-            if handling == dp.FieldSpecification.HANDLING_NONE:
-                predictions[:, data_slice] = np.nan
-            else:
-                predictions[:, data_slice] = y_pred
+        if self.config.ignored_columns:
+            predictions = np.ndarray(shape=logit.shape, dtype=self.config.dtype)
+            for data_slice, handling in self.handling_slices:
+                y_pred = logit[:, data_slice]
+                if handling == dp.FieldSpecification.HANDLING_NONE:
+                    predictions[:, data_slice] = np.nan
+                else:
+                    predictions[:, data_slice] = y_pred
+        else:
+            predictions = logit
+
+        self.logger.log(logging.DEBUG, "Prediction done for {shape!r} in {duration:.7f} seconds.".format(shape=x.shape, duration=time.perf_counter() - time_start))
+        return predictions
+
+
+class WinEstimator(NeuralNetwork):
+
+    def __init__(self, field_structure: dp.FieldStructure, column_structure: dp.ColumnStructure, config: ApplicationConfiguration):
+        super().__init__(field_structure, column_structure, config)
+        input_fields = dp.FieldStructure.make(self.field_structure.data_path, dp.PORTION_INTERESTING - dp.PORTION_WIN)
+        input_columns = dp.ColumnStructure.make(input_fields, self.config.dtype, dp.PORTION_INTERESTING - dp.PORTION_WIN)
+        self.handling_slices = input_columns.generate_handling_slices(self.config.ignored_columns)
+
+    def predict(self, x: np.ndarray, alpha=0.2) -> np.ndarray:
+        self.logger.log(logging.DEBUG, "Predict for interesting data of shape {shape!r}.".format(shape=x.shape))
+        time_start = time.perf_counter()
+
+        def leaky_relu(v: np.ndarray) -> np.ndarray:
+            return np.where(v > 0, v, v * alpha)
+
+        x = x.T
+        for layer, biases in zip(self.weights[:-1], self.biases[:-1]):
+            x = leaky_relu(layer.T @ x + biases)
+        logit = (self.weights[-1].T @ x + self.biases[-1]).T
+
+        if self.config.ignored_columns:
+            predictions = np.ndarray(shape=logit.shape, dtype=self.config.dtype)
+            for data_slice, handling in self.handling_slices:
+                y_pred = logit[:, data_slice]
+                if handling == dp.FieldSpecification.HANDLING_NONE:
+                    predictions[:, data_slice] = np.nan
+                else:
+                    predictions[:, data_slice] = y_pred
+        else:
+            predictions = logit
+
+        self.logger.log(logging.DEBUG, "Prediction done for {shape!r} in {duration:.7f} seconds.".format(shape=x.shape, duration=time.perf_counter() - time_start))
         return predictions
 
 

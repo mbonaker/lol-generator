@@ -1,6 +1,8 @@
 import csv
 import functools
 import io
+import re
+
 import math
 import queue
 import tempfile
@@ -36,6 +38,7 @@ class FieldSpecification:
     HANDLING_ONEHOT = 1
     HANDLING_BOOL = 2
     HANDLING_NONE = 3
+    HANDLING_UNARY = 4
     OCCURRENCE_SINGLE = 0
     OCCURRENCE_PERPARTICIPANT = 1
     OCCURRENCE_PERTEAM = 2
@@ -52,7 +55,7 @@ class FieldSpecification:
 
     @staticmethod
     def from_dict(source: Dict[str, str], known_data_optional: bool = False):
-        optional_column_names = FieldSpecification.get_optional_field_names()
+        optional_column_names = list(FieldSpecification.get_optional_field_names())
         name = source["Property Path"]
         if source["Format"].startswith("enum("):
             levels = source["Format"][5:-1].split("|")
@@ -71,6 +74,7 @@ class FieldSpecification:
             "continuous": FieldSpecification.HANDLING_CONTINUOUS,
             "bool": FieldSpecification.HANDLING_BOOL,
             "one-hot": FieldSpecification.HANDLING_ONEHOT,
+            "unary": FieldSpecification.HANDLING_UNARY,
         }[source["Recommended Handling"]]
         occurrence = {
             "single": FieldSpecification.OCCURRENCE_SINGLE,
@@ -247,6 +251,30 @@ class FieldStructure:
     def dtype(self) -> Dict[str, Union[np.dtype, pandas.api.types.CategoricalDtype]]:
         return dict((col.name, col.dtype) for col in self.specs)
 
+    @functools.lru_cache(maxsize=1024)
+    def get_overall_min(self, field: FieldSpecification):
+        if field.occurrence == FieldSpecification.OCCURRENCE_PERPARTICIPANT:
+            subproperty_name = field.name[len("participants.X."):]
+            all_property_names = tuple("participants.{pid}.{sp}".format(pid=pid, sp=subproperty_name) for pid in range(0, 9))
+            return min(field.min_value for field in self.specs if field.name in all_property_names)
+        if field.occurrence == FieldSpecification.OCCURRENCE_PERTEAM:
+            subproperty_name = field.name[len("teams.X."):]
+            all_property_names = tuple("teams.{tid}.{sp}".format(tid=tid, sp=subproperty_name) for tid in (0, 1))
+            return min(field.min_value for field in self.specs if field.name in all_property_names)
+        return field.min_value
+
+    @functools.lru_cache(maxsize=1024)
+    def get_overall_max(self, field: FieldSpecification):
+        if field.occurrence == FieldSpecification.OCCURRENCE_PERPARTICIPANT:
+            subproperty_name = field.name[len("participants.X."):]
+            all_property_names = tuple("participants.{pid}.{sp}".format(pid=pid, sp=subproperty_name) for pid in range(0, 9))
+            return max(field.max_value for field in self.specs if field.name in all_property_names)
+        if field.occurrence == FieldSpecification.OCCURRENCE_PERTEAM:
+            subproperty_name = field.name[len("teams.X."):]
+            all_property_names = tuple("teams.{tid}.{sp}".format(tid=tid, sp=subproperty_name) for tid in (0, 1))
+            return max(field.max_value for field in self.specs if field.name in all_property_names)
+        return field.max_value
+
 
 class ColumnSpecification:
     def __init__(self, field: FieldSpecification):
@@ -271,8 +299,23 @@ class OneHotFieldColumnSpecification(ColumnSpecification):
         return "{column_name}.{one_hot_level}".format(column_name=self.field.name, one_hot_level=self.key)
 
 
+class UnaryFieldColumnSpecification(ColumnSpecification):
+    def __init__(self, field: FieldSpecification, number: int):
+        super().__init__(field)
+        self.number = number
+
+    @property
+    def name(self):
+        return "{column_name}.{number:d}".format(column_name=self.field.name, number=self.number)
+
+
 class ColumnStructure:
-    def __init__(self, field_structure: FieldStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING, known_data_optional: bool = False):
+    @staticmethod
+    @functools.lru_cache(maxsize=10)
+    def make(field_structure: FieldStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING):
+        return ColumnStructure(field_structure, dtype, portion)
+
+    def __init__(self, field_structure: FieldStructure, dtype: np.dtype, portion: int = PORTION_INTERESTING):
         # logging
         self.logger = logging.getLogger(__name__)
         logger = logging.getLogger(__name__)
@@ -282,6 +325,7 @@ class ColumnStructure:
         self.portion = portion
         self.fields = field_structure
         self.dtype = dtype
+        self.slices = dict()
 
         # create the column representations
         self.specs: List[ColumnSpecification] = []
@@ -306,6 +350,11 @@ class ColumnStructure:
                 assert hasattr(field.format_spec, '__iter__') or field.format_spec == bool
                 for key in (True, False) if field.format_spec is bool else field.format_spec:
                     self.specs.append(OneHotFieldColumnSpecification(field, key))
+            elif field.handling == FieldSpecification.HANDLING_UNARY:
+                overall_min = field_structure.get_overall_min(field)
+                overall_max = field_structure.get_overall_max(field)
+                for number in range(overall_min + 1, overall_max + 1):
+                    self.specs.append(UnaryFieldColumnSpecification(field, number))
             else:
                 raise ValueError("Column handling type unknown")
 
@@ -319,6 +368,15 @@ class ColumnStructure:
         if self.portion & PORTION_WIN:
             column_order.extend(self.fields.win)
         self.specs.sort(key=lambda col: column_order.index(col.field))
+        field = None
+        field_start = None
+        for i, column in enumerate(self.specs):
+            if column.field != field:
+                if field is not None:
+                    self.slices[field.name] = slice(field_start, i)
+                field = column.field
+                field_start = i
+        self.slices[self.specs[-1].field.name] = slice(field_start, None)
 
     def get_portion_slice(self, portion: int):
         if not self.portion & portion:
@@ -436,6 +494,8 @@ class ColumnStructure:
             pd_col = dataframe[field.name]
             if isinstance(column, OneHotFieldColumnSpecification):
                 ndarray[:, i] = (pd_col == column.key).astype(self.dtype)
+            elif isinstance(column, UnaryFieldColumnSpecification):
+                ndarray[:, i] = (pd_col >= column.number).astype(self.dtype)
             elif column.handling == FieldSpecification.HANDLING_BOOL and pd_col.dtype.name == "category":
                 ndarray[:, i] = (pd_col == field.mode).astype(self.dtype)
             elif column.handling == FieldSpecification.HANDLING_BOOL and is_numeric_dtype(pd_col.dtype):
@@ -454,6 +514,9 @@ class ColumnStructure:
             if field.handling == FieldSpecification.HANDLING_ONEHOT:
                 level_indices = np.argmax(ndarray[:, column_slice], axis=1)
                 dataframe[field.name] = field.format_spec[level_indices]
+            elif field.handling == FieldSpecification.HANDLING_UNARY:
+                number = np.sum(ndarray[:, column_slice] > 0, 1) + field.min_value
+                dataframe[field.name] = number
             elif field.handling == FieldSpecification.HANDLING_BOOL and isinstance(field.format_spec, Iterable):
                 level_indices = (ndarray[:, column_slice] > 0).astype(np.int32)
                 true_value = field.mode
@@ -462,9 +525,9 @@ class ColumnStructure:
             elif field.handling == FieldSpecification.HANDLING_BOOL and (field.format_spec is int or field.format_spec is float):
                 level_indices = (ndarray[:, column_slice] > 0).astype(np.int32)
                 mean = field.mean
-                md = field.md
-                true_value = mean + md
-                false_value = mean - md
+                sd = field.sd
+                true_value = mean + sd
+                false_value = mean - sd
                 dataframe[field.name] = np.array([false_value, true_value])[level_indices]
             elif field.handling == FieldSpecification.HANDLING_BOOL and field.format_spec is bool:
                 level_indices = (ndarray[:, column_slice] > 0).astype(np.int32)
@@ -494,8 +557,8 @@ class ColumnStructure:
                 cont_ban_key_part = "teams.{tid:d}.bans.{mid:d}.".format(tid=tid, mid=cont_member_id)
                 rand_key_part = "participants.{pid:d}.".format(pid=rand_pid)
                 rand_ban_key_part = "teams.{tid:d}.bans.{mid:d}.".format(tid=tid, mid=rand_member_id)
-                cont_cids = np.where([col.name.startswith(cont_key_part) or col.name.startswith(cont_ban_key_part) for col in self.specs])
-                rand_cids = np.where([col.name.startswith(rand_key_part) or col.name.startswith(rand_ban_key_part) for col in self.specs])
+                cont_cids = np.where([col.name.startswith(cont_key_part) or col.name.startswith(cont_ban_key_part) for col in self.specs])[0]
+                rand_cids = np.where([col.name.startswith(rand_key_part) or col.name.startswith(rand_ban_key_part) for col in self.specs])[0]
                 shuffled_data[:, cont_cids] = data[:, rand_cids]
         return shuffled_data
 
@@ -507,13 +570,10 @@ class ColumnStructure:
         return indices
 
     def field_name_to_column_slice(self, name: str) -> slice:
-        for col in self.specs:
-            if col.field.name == name:
-                return self.field_to_column_slice(col.field)
-        raise KeyError("Did not find field {!r}".format(name))
+        return self.slices[name]
 
     def field_to_column_slice(self, field: FieldSpecification) -> slice:
-        return next(self.generate_slices(lambda c: c == field, 1))
+        return self.slices[field.name]
 
     def generate_slices(self, query: Callable[[FieldSpecification], bool], max_slices: Optional[int] = None) -> Generator[slice, None, None]:
         hit_start = None
@@ -577,7 +637,7 @@ class DataProvider:
         self.logger = logging.getLogger(__name__)
         self.data_path = data_path
         self.fields = FieldStructure.make(data_path, portion, known_data_is_optional)
-        self.columns = ColumnStructure(self.fields, dtype, portion, known_data_is_optional)
+        self.columns = ColumnStructure.make(self.fields, dtype, portion)
         self.data: Optional[np.ndarray] = None
 
     @property
@@ -634,22 +694,26 @@ class DataProvider:
         else:
             return self.data[:, self.columns.get_portion_slice(portion)]
 
-    def get_as_dataframe(self) -> pandas.DataFrame:
-        self.logger.log(logging.DEBUG, "Calculating the dataframe for numpy data (np shape: {shape!r})...".format(shape=self.data.shape))
-        dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, self.data.shape[0]), columns=tuple(col.name for col in self.fields.specs))
-        self.columns.np2pd(dataframe, self.get_ndarray(self.columns.portion))
+    def get_as_dataframe(self, nd=None) -> pandas.DataFrame:
+        nd = self.get_ndarray(self.columns.portion) if nd is None else nd
+        self.logger.log(logging.DEBUG, "Calculating the dataframe for numpy data (np shape: {shape!r})...".format(shape=nd.shape))
+        dataframe = pandas.DataFrame(index=pandas.RangeIndex(0, nd.shape[0]), columns=tuple(col.name for col in self.fields.specs))
+        self.columns.np2pd(dataframe, nd)
+        self.logger.log(logging.DEBUG, "Convert data frame parts to corresponding types...")
         for col_name, dtype in self.fields.dtype.items():
             try:
                 dataframe[col_name] = dataframe[col_name].astype(dtype)
             except (TypeError, ValueError):
                 # ignore, because we only offer type conversion as a convenience without guarantee
                 pass
+        self.logger.log(logging.DEBUG, "Return data frame...")
         return dataframe
 
-    def write_as_csv(self, file: io.TextIOBase):
-        dataframe = self.get_as_dataframe()
+    def write_as_csv(self, file: io.TextIOBase, nd=None):
+        dataframe = self.get_as_dataframe(nd)
         for column in self.fields.specs:
             dataframe[column.name] = dataframe[column.name].fillna(column.default)
+        self.logger.log(logging.DEBUG, "Write data frame as csv to stream...")
         dataframe.to_csv(file, header=False, index=False)
 
     def create_empty_data(self, length: int):
@@ -658,23 +722,28 @@ class DataProvider:
     def create_nan_data(self, length: int):
         self.data = np.full(shape=(length, len(self.columns.specs)), fill_value=np.nan, dtype=self.columns.dtype)
 
+    def get_nan_data(self, length: int) -> np.ndarray:
+        return np.full(shape=(length, len(self.columns.specs)), fill_value=np.nan, dtype=self.columns.dtype)
 
-class KnownStdinProvider(DataProvider):
-    def __init__(self, data_path: str, dtype: np.dtype, known_data_is_optional: bool = False):
+
+class KnownStreamProvider(DataProvider):
+    def __init__(self, stream, data_path: str, dtype: np.dtype, known_data_is_optional: bool = False):
         super().__init__(data_path, dtype, PORTION_KNOWN, known_data_is_optional)
-        try:
-            self.load()
-        except BaseException as e:
-            self.logger.error("Could not load the necessary data from stdin")
-            raise DataHandlingError("Could not load the necessary data from stdin") from e
+        self.stream = stream
+        if self.stream:
+            try:
+                self.load()
+            except BaseException as e:
+                self.logger.error("Could not load the necessary data from stdin")
+                raise DataHandlingError("Could not load the necessary data from stdin") from e
 
-    def load(self) -> None:
+    def load_get(self, stream) -> np.ndarray:
         self.logger.log(logging.INFO, "Reading known matches from stdin...")
         dataframe = pandas.read_csv(
-            sys.stdin,
+            stream,
             dtype=self.fields.dtype,
             header=None,
-            names=self.fields.known,
+            names=self.fields.known_names,
             true_values=("True",),
             na_values=('',),
             keep_default_na=False,
@@ -684,7 +753,10 @@ class KnownStdinProvider(DataProvider):
                 dataframe[field.name] = dataframe[field.name].fillna(field.default).astype(field.dtype)
         ndarray: np.ndarray = np.ndarray(shape=(dataframe.shape[0], len(self.columns.specs)), dtype=self.columns.dtype)
         self.columns.pd2np(dataframe, ndarray)
-        self.data = ndarray
+        return ndarray
+
+    def load(self) -> None:
+        self.data = self.load_get(self.stream)
 
 
 class CorpusProvider(DataProvider):
@@ -701,7 +773,17 @@ class CorpusProvider(DataProvider):
             self.data = self.load_from_npy_file()
         else:
             self.data = self.load_from_csv_file()
-            self.save_to_npy_file()
+            self.logger.info("Memmap numpy array was created. Now delete all remakes...")
+            duration = self.columns.field_name_to_column_slice("gameDuration")
+            i = 0
+            c = 0
+            while self.data.shape[0] > i:
+                self.data[c, :] = self.data[i, :]
+                if self.data[i, duration] > (15 * 60 - 1762.503) / 493.163:
+                    c += 1
+                i += 1
+            self.logger.info("Memmap numpy array was created. Now delete all remakes...")
+            self.save_to_npy_file(c)
 
     def load_from_npy_file(self) -> np.ndarray:
         self.logger.log(logging.INFO, "Load {npy_path}".format(npy_path=self.npy_file_name))
@@ -713,9 +795,9 @@ class CorpusProvider(DataProvider):
     def npy_file_name(self) -> str:
         return "{path}/Matches.npy".format(path=self.data_path)
 
-    def save_to_npy_file(self) -> None:
+    def save_to_npy_file(self, match_amount=None) -> None:
         self.logger.log(logging.INFO, "Save {npy_path}".format(npy_path=self.npy_file_name))
-        np.save(self.npy_file_name, self.data)
+        np.save(self.npy_file_name, self.data[:match_amount, :])
         self.logger.log(logging.INFO, "Saved {npy_path}".format(npy_path=self.npy_file_name))
 
     def dataframe_to_ndarray_conversion_thread(self, chunk_queue: queue.Queue, memmap: np.ndarray, chunksize: int, thread_index: int) -> None:

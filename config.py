@@ -270,22 +270,27 @@ class StopCriteria(StopCriterion):
 LEARNING_RATE = ConfigurationOption('lr', 'Learning Rate', True, lambda x: "{:.0e}".format(x), float)
 G_LEARNING_RATE = ConfigurationOption('glr', 'Learning Rate of Generator (adversarial)', True, lambda x: "{:.0e}".format(x), float)
 D_LEARNING_RATE = ConfigurationOption('dlr', 'Learning Rate of Discriminator', True, lambda x: "{:.0e}".format(x), float)
+W_LEARNING_RATE = ConfigurationOption('wlr', 'Learning Rate of Win Estimator', True, lambda x: "{:.0e}".format(x), float)
 LABEL = ConfigurationOption('label', 'Label', False, lambda x: 'none' if x is None else x, str)
 DTYPE = ConfigurationOption('dt', 'DType', True, lambda x: x.str, np.dtype)
 OPTIMIZER = ConfigurationOption('opti', 'Optimizer', True, optimizer_to_str, str_to_optimizer)
 G_OPTIMIZER = ConfigurationOption('gopti', 'Optimizer of Generator (adversarial)', True, optimizer_to_str, str_to_optimizer)
 D_OPTIMIZER = ConfigurationOption('dopti', 'Optimizer of Discriminator', True, optimizer_to_str, str_to_optimizer)
+W_OPTIMIZER = ConfigurationOption('wopti', 'Optimizer of Win Estimator', True, optimizer_to_str, str_to_optimizer)
 BATCH_SIZE = ConfigurationOption('bs', 'Batch Size', True, lambda x: "{:.1e}".format(x), suffixed_si_to_number)
 SEED = ConfigurationOption('seed', 'Seed', True, str, int)
 IGNORED_COLUMNS = ConfigurationOption('ic', 'Ignored Columns', False, ignored_columns_to_str, str_to_ignored_columns)
 HIDDEN_LAYERS = ConfigurationOption('hl', 'Hidden Layer Structure', True, lambda x: ":".join(str(n) for n in x), lambda x: list(int(n) for n in x.split(":")) if x else [])
 D_HIDDEN_LAYERS = ConfigurationOption('dhl', 'Hidden Layer Structure of Discriminator', True, lambda x: ":".join(str(n) for n in x), lambda x: list(int(n) for n in x.split(":")) if x else [])
+W_HIDDEN_LAYERS = ConfigurationOption('whl', 'Hidden Layer Structure of Win Estimator', True, lambda x: ":".join(str(n) for n in x), lambda x: list(int(n) for n in x.split(":")) if x else [])
 ACTIVATION = ConfigurationOption('af', 'Activation Function', True, activation_function_to_str, str_to_activation_function)
 D_ACTIVATION = ConfigurationOption('daf', 'Discriminator Activation Function', True, activation_function_to_str, str_to_activation_function)
+W_ACTIVATION = ConfigurationOption('waf', 'Win Estimator Activation Function', True, activation_function_to_str, str_to_activation_function)
 TEST_DATA_AMOUNT = ConfigurationOption('td', 'Test Data Amount', True, str, suffixed_si_to_number)
 VALIDATION_DATA_AMOUNT = ConfigurationOption('vd', 'Validation Data Amount', True, str, suffixed_si_to_number)
 LAMBDA = ConfigurationOption('lambda', 'Lambda for L2-Regularization', True, str, float)
 D_LAMBDA = ConfigurationOption('dlambda', 'Lambda for L2-Regularization of the Discriminator', True, str, float)
+W_LAMBDA = ConfigurationOption('wlambda', 'Lambda for L2-Regularization of the Win Estimator', True, str, float)
 STOP_CRITERIA = ConfigurationOption('stop', 'Stop Criteria', True, str, StopCriteria)
 SAMPLES_PER_TEST_EVALUATION = ConfigurationOption('evtest', 'Samples per Test Evaluation', True, str, suffixed_si_to_number)
 SAMPLES_PER_TRAIN_EVALUATION = ConfigurationOption('evtrain', 'Samples per Train Evaluation', True, str, suffixed_si_to_number)
@@ -295,22 +300,27 @@ OPTIONS = (
     LEARNING_RATE,
     G_LEARNING_RATE,
     D_LEARNING_RATE,
+    W_LEARNING_RATE,
     LABEL,
     DTYPE,
     OPTIMIZER,
     G_OPTIMIZER,
     D_OPTIMIZER,
+    W_OPTIMIZER,
     BATCH_SIZE,
     SEED,
     IGNORED_COLUMNS,
     HIDDEN_LAYERS,
     D_HIDDEN_LAYERS,
+    W_HIDDEN_LAYERS,
     ACTIVATION,
     D_ACTIVATION,
+    W_ACTIVATION,
     TEST_DATA_AMOUNT,
     VALIDATION_DATA_AMOUNT,
     LAMBDA,
     D_LAMBDA,
+    W_LAMBDA,
     STOP_CRITERIA,
     SAMPLES_PER_TEST_EVALUATION,
     SAMPLES_PER_TRAIN_EVALUATION,
@@ -331,6 +341,11 @@ class ApplicationConfiguration:
             '-t', '--train',
             action='store_true',
             help="If this flag is set, the corpus will be used to train the neural network.",
+        )
+        argument_parser.add_argument(
+            '-w', '--train-win-estimator',
+            action='store_true',
+            help="If this flag is set, the corpus will be used to train the win estimation neural network.",
         )
         argument_parser.add_argument(
             '-g', '--gan',
@@ -368,9 +383,24 @@ class ApplicationConfiguration:
             help=D_HIDDEN_LAYERS.name,
         )
         argument_parser.add_argument(
+            '--whl',
+            type=W_HIDDEN_LAYERS.str_to_value,
+            help=W_HIDDEN_LAYERS.name,
+        )
+        argument_parser.add_argument(
             '--stop',
             type=STOP_CRITERIA.str_to_value,
             help=STOP_CRITERIA.name,
+        )
+        argument_parser.add_argument(
+            '--g-weights',
+            type=str,
+            help=str,
+        )
+        argument_parser.add_argument(
+            '--w-weights',
+            type=str,
+            help=str,
         )
         argument_parser.add_argument(
             '--bs',
@@ -393,9 +423,19 @@ class ApplicationConfiguration:
             help=D_OPTIMIZER.name,
         )
         argument_parser.add_argument(
+            '--wopti', '--woptim',
+            type=W_OPTIMIZER.str_to_value,
+            help=W_OPTIMIZER.name,
+        )
+        argument_parser.add_argument(
             '--daf', '--dactivation',
             type=D_ACTIVATION.str_to_value,
             help=D_ACTIVATION.name,
+        )
+        argument_parser.add_argument(
+            '--waf', '--wactivation',
+            type=W_ACTIVATION.str_to_value,
+            help=W_ACTIVATION.name,
         )
         argument_parser.add_argument(
             '--evtest',
@@ -418,6 +458,11 @@ class ApplicationConfiguration:
             help=D_LAMBDA.name,
         )
         argument_parser.add_argument(
+            '-wλ', '--wlambda',
+            type=W_LAMBDA.str_to_value,
+            help=W_LAMBDA.name,
+        )
+        argument_parser.add_argument(
             '--lr',
             type=LEARNING_RATE.str_to_value,
             help=LEARNING_RATE.name,
@@ -432,30 +477,40 @@ class ApplicationConfiguration:
             type=D_LEARNING_RATE.str_to_value,
             help=D_LEARNING_RATE.name,
         )
+        argument_parser.add_argument(
+            '--wlr',
+            type=W_LEARNING_RATE.str_to_value,
+            help=W_LEARNING_RATE.name,
+        )
         self.arguments = argument_parser.parse_args(str_arguments)
         self.default_options = {
             LAMBDA: 0,
             D_LAMBDA: 0,
+            W_LAMBDA: 0,
             DTYPE: 'float16',
             HIDDEN_LAYERS: [256],
             D_HIDDEN_LAYERS: [256],
+            W_HIDDEN_LAYERS: [256],
             LEARNING_RATE: 0.001,
             G_LEARNING_RATE: 0.001,
             D_LEARNING_RATE: 0.001,
+            W_LEARNING_RATE: 0.001,
             OPTIMIZER: 'adam',
             G_OPTIMIZER: 'adam',
             D_OPTIMIZER: 'adam',
+            W_OPTIMIZER: 'adam',
             ACTIVATION: 'leaky-relu',
             D_ACTIVATION: 'leaky-relu',
+            W_ACTIVATION: 'leaky-relu',
             BATCH_SIZE: 2048,
             SEED: 0,
             TEST_DATA_AMOUNT: 1 << 14,
             VALIDATION_DATA_AMOUNT: 1 << 14,
             STOP_CRITERIA: StopCriteria('seconds1800:stagnant'),  # 1800 seconds is half an hour
             IGNORED_COLUMNS: '',
-            SAMPLES_PER_TEST_EVALUATION: 500000,
+            SAMPLES_PER_TEST_EVALUATION: 50000,
             SAMPLES_PER_TRAIN_EVALUATION: 100000,
-            CODE_VERSION: 19,
+            CODE_VERSION: 31,
         }
         self.option_dict = {}
 
@@ -468,6 +523,10 @@ class ApplicationConfiguration:
         return self.arguments.stdin
 
     @property
+    def should_train_win_estimator(self) -> bool:
+        return self.arguments.train_win_estimator
+
+    @property
     def try_consistently(self) -> bool:
         return self.arguments.try_consistently
 
@@ -478,6 +537,20 @@ class ApplicationConfiguration:
     @property
     def should_train_adversarial(self) -> bool:
         return self.arguments.gan
+
+    @property
+    def g_weights(self) -> str:
+        if self.arguments.g_weights:
+            return self.arguments.g_weights
+        else:
+            return "../data/generator_state_{label:s}.npz".format(label=str(self))
+
+    @property
+    def w_weights(self) -> str:
+        if self.arguments.w_weights:
+            return self.arguments.w_weights
+        else:
+            return "../data/win_estimator_state_{label:s}.npz".format(label=str(self))
 
     @property
     def test_data_amount(self) -> int:
@@ -504,6 +577,10 @@ class ApplicationConfiguration:
         return self.get_value(D_HIDDEN_LAYERS)
 
     @property
+    def w_hidden_layer_structure(self) -> Tuple[int, ...]:
+        return self.get_value(W_HIDDEN_LAYERS)
+
+    @property
     def seed(self) -> int:
         return self.get_value(SEED)
 
@@ -518,6 +595,10 @@ class ApplicationConfiguration:
     @property
     def d_lambda_(self) -> float:
         return self.get_value(D_LAMBDA)
+
+    @property
+    def w_lambda_(self) -> float:
+        return self.get_value(W_LAMBDA)
 
     @property
     def label(self) -> str:
@@ -544,6 +625,10 @@ class ApplicationConfiguration:
         return self.get_value(D_OPTIMIZER)
 
     @property
+    def w_optimizer(self) -> Callable[[float], Any]:
+        return self.get_value(W_OPTIMIZER)
+
+    @property
     def samples_per_test_evaluation(self) -> int:
         return self.get_value(SAMPLES_PER_TEST_EVALUATION)
 
@@ -564,12 +649,24 @@ class ApplicationConfiguration:
         return self.get_value(D_LEARNING_RATE)
 
     @property
+    def w_learning_rate(self) -> float:
+        return self.get_value(W_LEARNING_RATE)
+
+    @property
     def activation_function(self):
         return self.get_value(ACTIVATION)
 
     @property
     def d_activation_function(self):
         return self.get_value(D_ACTIVATION)
+
+    @property
+    def w_activation_function(self):
+        return self.get_value(W_ACTIVATION)
+
+    @property
+    def code_version(self):
+        return self.get_value(CODE_VERSION)
 
     def set(self, option: ConfigurationOption, value):
         self.option_dict[option] = value
@@ -587,6 +684,19 @@ class ApplicationConfiguration:
             return self.get_default(option)
         return None
 
+    def get_value_str(self, option: ConfigurationOption) -> str:
+        if option in self.option_dict:
+            value = self.option_dict[option]
+            if type(value) == str:
+                return value
+            else:
+                return option.value_to_str(value)
+        if hasattr(self.arguments, option.key) and getattr(self.arguments, option.key) is not None:
+            return option.value_to_str(getattr(self.arguments, option.key))
+        if option in self.default_options:
+            return self.get_default_str(option)
+        return ''
+
     def get_default(self, option: ConfigurationOption):
         value = self.default_options[option]
         if type(value) == str:
@@ -594,15 +704,22 @@ class ApplicationConfiguration:
         else:
             return value
 
+    def get_default_str(self, option: ConfigurationOption) -> str:
+        value = self.default_options[option]
+        if type(value) == str:
+            return value
+        else:
+            return option.value_to_str(value)
+
     def __str__(self) -> str:
         information_points = []
         for option in OPTIONS:
             if option not in self.option_dict and not hasattr(self.arguments, option.key):
                 continue
-            value = self.get_value(option)
-            if value is None or option in self.default_options and self.get_default(option) == value:
+            value = self.get_value_str(option)
+            if value is None or option in self.default_options and self.get_default_str(option) == value:
                 continue
-            info = "{:s}={:s}".format(option.key, option.value_to_str(self.get_value(option)))
+            info = "{:s}={:s}".format(option.key, self.get_value_str(option))
             information_points.append(info)
         if not information_points:
             return "default-v{:d}".format(self.get_value(CODE_VERSION))
