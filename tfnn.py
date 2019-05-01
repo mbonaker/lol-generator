@@ -180,7 +180,7 @@ class TrainableGenerator(Generator):
                 labels['onehot_{:s}'.format(key)] = ys
                 accuracies['onehot_{:s}'.format(key)] = tf.cast(tf.equal(tf.argmax(logit_slice, 1, output_type=tf.int32), tf.argmax(ys, 1, output_type=tf.int32)), self.config.dtype)
                 accuracy_amount += 1
-            for key_part in ("stats.assists", "stats.deaths", "stats.kills", "stats.doubleKills", "stats.tripleKills", "stats.quadraKills", "stats.pentaKills", "stats.goldEarned", "stats.turretKills"):  # KDA
+            for key_part in ("stats.assists", "stats.deaths", "stats.kills", "stats.doubleKills", "stats.tripleKills", "stats.quadraKills", "stats.pentaKills", "stats.goldEarned", "stats.turretKills", "stats.champLevel", "stats.largestMultiKill"):
                 key = 'participants.{id:d}.{k:s}'.format(id=pid, k=key_part)
                 field = self.unknown_field_structure[key]
                 slice_ = self.unknown_column_structure.field_to_column_slice(field)
@@ -189,8 +189,10 @@ class TrainableGenerator(Generator):
                 loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd)) / field.sd
                 losses['std_{:s}'.format(key)] = loss
                 labels['std_{:s}'.format(key)] = ys
-        for tid in range(2):
-            for key_part in ("dragonKills", "baronKills", "towerKills"):
+        for key_part in ("dragonKills", "baronKills", "towerKills", "inhibitorKills", "riftHeraldKills"):
+            per_team_logits = []
+            per_team_ys = []
+            for tid in range(2):
                 key = 'teams.{id:d}.{k:s}'.format(id=tid, k=key_part)
                 field = self.unknown_field_structure[key]
                 slice_ = self.unknown_column_structure.field_to_column_slice(field)
@@ -199,6 +201,21 @@ class TrainableGenerator(Generator):
                 loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd)) / field.sd
                 losses['std_{:s}'.format(key)] = loss
                 labels['std_{:s}'.format(key)] = ys
+                per_team_logits.append(logit_slice)
+                per_team_ys.append((ys - field.mean) / field.sd)
+            team_difference_estimated = tf.math.abs(per_team_logits[0] - per_team_logits[1])
+            team_difference_real = tf.math.abs(per_team_ys[0] - per_team_ys[1])
+            loss = tf.reduce_mean(tf.math.abs(team_difference_estimated - team_difference_real))
+            losses['team_difference_{:s}'.format(key_part)] = loss
+        # Duration diversity:
+        field = self.unknown_field_structure['gameDuration']
+        slice_ = self.unknown_column_structure.field_to_column_slice(field)
+        logit_slice = logit[:, slice_]
+        ys = y[:, slice_]
+        loss = (tf_dev(logit_slice) - tf_dev(ys * field.sd)) ** 2 / field.sd
+        losses['std_{:s}'.format('gameDuration')] = loss
+        labels['std_{:s}'.format('gameDuration')] = ys
+        # END
         if self.config.lambda_:
             regularization = sum(tf.nn.l2_loss(w) for w, _ in self.layers if w is not None) * self.config.lambda_
             losses["regularization"] = regularization
