@@ -82,6 +82,11 @@ class TrainableGenerator(Generator):
                 accuracy = (tf.math.abs(tf.reduce_sum(tf.cast(column_prediction > 0.5, self.config.dtype), axis=1) - tf.reduce_sum(column_ground_truth, axis=1)) / field.sd + 1) ** -1
                 error_summary = tf.summary.scalar("test_accuracy_{column_name:s}".format(column_name=field.name), tf.reduce_mean(accuracy))
                 prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=field.name), tf.cast(tf.reduce_mean(column_prediction, axis=1), tf.float64) * field.sd + field.mean)
+            elif field.handling == dp.FieldSpecification.HANDLING_ONEHOT:
+                pred_value = tf.argmax(column_prediction, 1, output_type=tf.int32)
+                accuracy = tf.cast(tf.equal(pred_value, tf.argmax(column_ground_truth, 1, output_type=tf.int32)), self.config.dtype)
+                error_summary = tf.summary.scalar("test_accuracy_{column_name:s}".format(column_name=field.name), tf.reduce_mean(accuracy))
+                prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=field.name), tf.cast(pred_value, tf.float16))
             else:
                 error_summary = tf.summary.scalar("test_error_{column_name:s}".format(column_name=field.name), column_mae)
                 prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=field.name), tf.reduce_mean(column_prediction, axis=1))
@@ -181,7 +186,7 @@ class TrainableGenerator(Generator):
                 slice_ = self.unknown_column_structure.field_to_column_slice(field)
                 logit_slice = logit[:, slice_]
                 ys = y[:, slice_]
-                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd))
+                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd)) / field.sd
                 losses['std_{:s}'.format(key)] = loss
                 labels['std_{:s}'.format(key)] = ys
         for tid in range(2):
@@ -191,7 +196,7 @@ class TrainableGenerator(Generator):
                 slice_ = self.unknown_column_structure.field_to_column_slice(field)
                 logit_slice = logit[:, slice_]
                 ys = y[:, slice_]
-                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd))
+                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd)) / field.sd
                 losses['std_{:s}'.format(key)] = loss
                 labels['std_{:s}'.format(key)] = ys
         if self.config.lambda_:
