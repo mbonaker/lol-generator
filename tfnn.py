@@ -55,12 +55,14 @@ class TrainableGenerator(Generator):
         minimizer = self.config.optimizer(self.config.learning_rate).apply_gradients(capped_grads_and_vars, global_step=global_step)
         return minimizer, global_step
 
-    def make_summaries(self, predictions: tf.Tensor, ground_truth: tf.Tensor, main_accuracy: tf.Tensor):
+    def make_summaries(self, predictions: tf.Tensor, ground_truth: tf.Tensor, main_accuracy: tf.Tensor, loss: Optional[tf.Tensor] = None):
         error = tf.subtract(predictions, ground_truth, "error")
-        train_summaries = tf.summary.merge([
+        train_evaluation_summaries = [
             # tf.summary.histogram("train_mean_error", self.mae),
             tf.summary.scalar("train_accuracy", tf.reduce_mean(main_accuracy)),
-        ])
+        ]
+        if loss is not None:
+            train_evaluation_summaries.append(tf.summary.scalar("train_loss", tf.reduce_mean(loss)))
         test_evaluation_summaries = [
             tf.summary.scalar("test_accuracy", tf.reduce_mean(main_accuracy)),
         ]
@@ -73,12 +75,22 @@ class TrainableGenerator(Generator):
                 accuracy = (tf.math.abs(tf.reduce_sum(tf.cast(column_prediction > 0.5, self.config.dtype), axis=1) - tf.reduce_sum(column_ground_truth, axis=1)) / field.sd + 1) ** -1
                 error_summary = tf.summary.scalar("test_accuracy_{column_name:s}".format(column_name=field.name), tf.reduce_mean(accuracy))
                 prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=field.name), tf.reduce_sum(tf.cast(column_prediction > 0.5, tf.int16), axis=1))
+            elif field.handling == dp.FieldSpecification.HANDLING_CONTINUOUS:
+                error_summary = tf.summary.scalar("test_error_{column_name:s}".format(column_name=field.name), column_mae)
+                prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=field.name), tf.cast(tf.reduce_mean(column_prediction, axis=1), tf.float64) * field.sd + field.mean)
+            elif field.handling == dp.FieldSpecification.HANDLING_BOOL:
+                accuracy = (tf.math.abs(tf.reduce_sum(tf.cast(column_prediction > 0.5, self.config.dtype), axis=1) - tf.reduce_sum(column_ground_truth, axis=1)) / field.sd + 1) ** -1
+                error_summary = tf.summary.scalar("test_accuracy_{column_name:s}".format(column_name=field.name), tf.reduce_mean(accuracy))
+                prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=field.name), tf.cast(tf.reduce_mean(column_prediction, axis=1), tf.float64) * field.sd + field.mean)
             else:
                 error_summary = tf.summary.scalar("test_error_{column_name:s}".format(column_name=field.name), column_mae)
                 prediction_summary = tf.summary.histogram("test_prediction_{column_name:s}".format(column_name=field.name), tf.reduce_mean(column_prediction, axis=1))
             test_evaluation_summaries.append(error_summary)
             test_evaluation_summaries.append(prediction_summary)
+        if loss is not None:
+            test_evaluation_summaries.append(tf.summary.scalar("test_loss", tf.reduce_mean(loss)))
         test_summaries = tf.summary.merge(test_evaluation_summaries)
+        train_summaries = tf.summary.merge(train_evaluation_summaries)
         return train_summaries, test_summaries
 
     def make_data_iterator(self, data: dp.DataProvider) -> Tuple[tf.data.Iterator, tf.data.Iterator, tf.placeholder, tf.data.Iterator]:
@@ -147,6 +159,10 @@ class TrainableGenerator(Generator):
                 labels['unary_{:s}'.format(field.name)] = ys
                 accuracies['unary_{:s}'.format(field.name)] = (tf.math.abs(tf.reduce_sum(tf.cast(logit_slice > 0, self.config.dtype), axis=1) - tf.reduce_sum(ys, axis=1)) / field.sd + 1) ** -1
                 accuracy_amount += 1
+
+        def tf_dev(v):
+            # return tf.math.reduce_std(tf.math.abs(tf.math.reduce_mean(v) - v)) ** 0.5 * 2
+            return tf.math.reduce_mean(tf.math.abs(tf.math.reduce_mean(v) - v))
         # per participant one-hot encodings
         for pid in range(10):
             for key_part in ("highestAchievedSeasonTier", "timeline.lane", "timeline.role"):
@@ -159,10 +175,29 @@ class TrainableGenerator(Generator):
                 labels['onehot_{:s}'.format(key)] = ys
                 accuracies['onehot_{:s}'.format(key)] = tf.cast(tf.equal(tf.argmax(logit_slice, 1, output_type=tf.int32), tf.argmax(ys, 1, output_type=tf.int32)), self.config.dtype)
                 accuracy_amount += 1
+            for key_part in ("stats.assists", "stats.deaths", "stats.kills", "stats.doubleKills", "stats.tripleKills", "stats.quadraKills", "stats.pentaKills", "stats.goldEarned", "stats.turretKills"):  # KDA
+                key = 'participants.{id:d}.{k:s}'.format(id=pid, k=key_part)
+                field = self.unknown_field_structure[key]
+                slice_ = self.unknown_column_structure.field_to_column_slice(field)
+                logit_slice = logit[:, slice_]
+                ys = y[:, slice_]
+                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd))
+                losses['std_{:s}'.format(key)] = loss
+                labels['std_{:s}'.format(key)] = ys
+        for tid in range(2):
+            for key_part in ("dragonKills", "baronKills", "towerKills"):
+                key = 'teams.{id:d}.{k:s}'.format(id=tid, k=key_part)
+                field = self.unknown_field_structure[key]
+                slice_ = self.unknown_column_structure.field_to_column_slice(field)
+                logit_slice = logit[:, slice_]
+                ys = y[:, slice_]
+                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd))
+                losses['std_{:s}'.format(key)] = loss
+                labels['std_{:s}'.format(key)] = ys
         if self.config.lambda_:
             regularization = sum(tf.nn.l2_loss(w) for w, _ in self.layers if w is not None) * self.config.lambda_
             losses["regularization"] = regularization
-        loss = tf.math.add_n(list(losses.values()), "loss")
+        loss = tf.math.add_n(list(l / len(losses) for l in losses.values()), "loss")
         accuracy = tf.math.divide(tf.math.add_n(list(accuracies.values())), tf.cast(accuracy_amount, tf.float16), name="accuracy")
         return loss, accuracy
 
@@ -273,7 +308,7 @@ class TrainableGenerator(Generator):
         loss, accuracies = self.make_metrics(logit, targets)
         accuracy = tf.reduce_mean(accuracies)
         predictions = self.make_output(logit)
-        train_summary, test_summary = self.make_summaries(predictions, targets, accuracy)
+        train_summary, test_summary = self.make_summaries(predictions, targets, accuracy, loss)
         minimizer, step = self.make_minimizer(loss)
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -625,8 +660,7 @@ class TrainableWinEstimator(NeuralNetwork):
         return train_summaries, test_summaries
 
     def make_metrics(self, logit: tf.Tensor, y: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
-        loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=logit, labels=y)) \
-               + tf.cast(tf.losses.hinge_loss(labels=y, logits=logit, reduction=tf.losses.Reduction.SUM), dtype=self.config.dtype)
+        loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=logit, labels=y))
         accuracy = tf.cast(tf.equal(logit > 0, y > 0.5), self.config.dtype)
         return loss, accuracy
 

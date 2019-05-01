@@ -195,6 +195,12 @@ class FieldStructure:
                 if line['Property Path'] in portion_set:
                     self.specs.append(FieldSpecification.from_dict(line, known_data_optional))
 
+    def __getitem__(self, item: str) -> FieldSpecification:
+        for field in self.specs:
+            if field.name == item:
+                return field
+        raise IndexError('Field not found.')
+
     @property
     def known(self) -> List[FieldSpecification]:
         return [field for field in self.specs if field.name in self.known_names]
