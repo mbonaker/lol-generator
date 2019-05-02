@@ -510,7 +510,7 @@ class ApplicationConfiguration:
             IGNORED_COLUMNS: '',
             SAMPLES_PER_TEST_EVALUATION: 50000,
             SAMPLES_PER_TRAIN_EVALUATION: 100000,
-            CODE_VERSION: 39,
+            CODE_VERSION: 40,
         }
         self.option_dict = {}
 

@@ -183,7 +183,7 @@ class TrainableGenerator(Generator):
                 slice_ = self.unknown_column_structure.field_to_column_slice(field)
                 logit_slice = logit[:, slice_]
                 ys = y[:, slice_]
-                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd)) / field.sd
+                loss = tf.math.abs(tf_dev(logit_slice * field.sd) - tf_dev(ys)) / field.sd
                 losses['std_{:s}'.format(key)] = loss
         # Compare the sum of one stat across members of a team to the sum of the same stat of the opposite team
         # – set an incentive to get the sum right and the distance between teams
@@ -219,7 +219,7 @@ class TrainableGenerator(Generator):
                 slice_ = self.unknown_column_structure.field_to_column_slice(field)
                 logit_slice = logit[:, slice_]
                 ys = y[:, slice_]
-                loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd)) / field.sd
+                loss = tf.math.abs(tf_dev(logit_slice * field.sd) - tf_dev(ys)) / field.sd
                 losses['std_{:s}'.format(key)] = loss
                 per_team_logits.append(logit_slice)
                 per_team_ys.append((ys - field.mean) / field.sd)
@@ -232,7 +232,7 @@ class TrainableGenerator(Generator):
         slice_ = self.unknown_column_structure.field_to_column_slice(field)
         logit_slice = logit[:, slice_]
         ys = y[:, slice_]
-        loss = tf.math.abs(tf_dev(logit_slice) - tf_dev(ys * field.sd)) / field.sd
+        loss = tf.math.abs(tf_dev(logit_slice * field.sd) - tf_dev(ys)) / field.sd
         losses['std_{:s}'.format('gameDuration')] = loss
         # END
         if self.config.lambda_:
